@@ -48,13 +48,14 @@ html, body {
   width: 116px; height: 116px; opacity: 0.85; pointer-events: none;
 }
 #joy > .base {
-  position: absolute; inset: 0; border-radius: 50%;
-  background: radial-gradient(circle, rgba(26,20,14,0.25) 58%, rgba(26,20,14,0.5) 62%, rgba(232,185,107,0.55) 66%, rgba(232,185,107,0.75) 74%, rgba(109,68,38,0.8) 78%, transparent 82%);
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  object-fit: contain;
 }
 #stick {
   position: absolute; left: 50%; top: 50%;
-  width: 52px; height: 52px;
+  width: 38px; height: 64px; object-fit: contain;
   transform: translate(-50%, -50%);
+  margin-top: -12px; /* 스틱 발이 패드 중앙에 오도록 */
 }
 
 /* ── 액션 버튼 ───────────────────── */

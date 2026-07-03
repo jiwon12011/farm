@@ -261,7 +261,7 @@ const CORE_ASSETS = [
   ...Object.keys(CROPS).flatMap(id => [`assets/crops/${id}_mature.png`, `assets/items/${id}.png`]),
   'assets/ui/icon_star.png', 'assets/ui/icon_coin.png', 'assets/ui/icon_firefly.png',
   'assets/ui/icon_hoe.png', 'assets/ui/icon_wateringcan.png', 'assets/ui/icon_heart.png', 'assets/ui/icon_bag.png',
-  'assets/ui/joystick_base.png', 'assets/ui/joystick_stick.png', 'assets/objects/sign.png',
+  'assets/objects/sign.png',
 ];
 
 async function boot() {
