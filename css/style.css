@@ -139,6 +139,14 @@ button.row.pick:active { background: #eed49a; }
 .buy.gold { background: #e8a33d; box-shadow: 0 2px 0 #a86b1d; }
 .buy.off { background: #b6ab97; box-shadow: 0 2px 0 #8d8471; }
 .buy:active { transform: translateY(2px); box-shadow: none; }
+.tabs { display: flex; gap: 8px; }
+.tab {
+  flex: 1; font-family: inherit; font-size: 15px;
+  background: #e8d5a8; color: #8a5a3b; border: 2px solid #d9b475;
+  border-radius: 12px; padding: 9px; cursor: pointer;
+}
+.tab.on { background: #7cb458; border-color: #3e7a44; color: #fff; }
+.buy.wide { width: 100%; padding: 12px; font-size: 15px; }
 .close-btn {
   font-family: inherit; font-size: 16px;
   background: #d9b475; color: #3a2413; border: none; border-radius: 14px;

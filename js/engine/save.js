@@ -10,6 +10,9 @@ export function newState() {
     inv: {},
     plots: Array.from({ length: 20 }, (_, i) => ({ id: i, crop: null, progress: 0, wateredUntil: 0 })),
     unlocked: 6,
+    animals: [],
+    stoves: { pan: null, pot: null },
+    recipes: [],
     map: 'farm',
     px: 620, py: 400,
     flags: {},
@@ -24,8 +27,16 @@ export function load() {
     if (!raw) return null;
     const s = JSON.parse(raw);
     if (s.v !== 1) return null;
-    return s;
+    return migrate(s);
   } catch { return null; }
+}
+
+// Phase 2 필드 채우기 (기존 세이브 호환)
+function migrate(s) {
+  s.animals ??= [];
+  s.stoves ??= { pan: null, pot: null };
+  s.recipes ??= [];
+  return s;
 }
 
 export function save(state) {

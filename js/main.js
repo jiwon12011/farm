@@ -4,10 +4,15 @@ import { CROPS } from './data/crops.js';
 import { img, preload, drawSprite } from './engine/assets.js';
 import { initInput, pollInput } from './engine/input.js';
 import { newState, load, save, wipe, initAutosave } from './engine/save.js';
-import { tickFarm, settleOffline, plant, water, harvest, plotCost, stageSprite, GROWTH_MULT } from './systems/farming.js';
+import { tickFarm, plant, water, harvest, plotCost, stageSprite, GROWTH_MULT } from './systems/farming.js';
+import { ANIMALS, tickRanch, wander, readyCount, collect, feed, pet, canPet } from './systems/ranch.js';
+import { settleOffline } from './systems/offline.js';
+import { itemOf } from './data/items.js';
+import { STARTER_RECIPES } from './data/recipes.js';
 import * as UI from './ui/ui.js';
 
 const DEBUG = new URLSearchParams(location.search).has('debug');
+const OVERLAY = new URLSearchParams(location.search).get('debug') === 'overlay'; // 충돌·상호작용 영역 표시
 const cv = document.getElementById('cv');
 const ctx = cv.getContext('2d');
 
@@ -77,6 +82,13 @@ function findAction() {
       else if (plot.progress >= 1) consider(d, { kind: 'harvest', i, label: '수확', icon: 'icon_star' });
       else if (plot.progress >= plot.wateredUntil) consider(d, { kind: 'water', i, label: '물주기', icon: 'icon_wateringcan' });
     });
+    S.animals.forEach((a, i) => {
+      const d = Math.hypot(player.x - a.x, player.y - a.y);
+      if (d > 52) return;
+      if (readyCount(a) > 0) consider(d, { kind: 'collect', i, label: '받기', icon: 'icon_star' });
+      else if ((S.inv.feed || 0) > 0) consider(d, { kind: 'feed', i, label: '먹이', icon: 'icon_bag' });
+      else if (canPet(a)) consider(d, { kind: 'pet', i, label: '쓰다듬기', icon: 'icon_heart' });
+    });
   }
   for (const it of m.interacts) {
     const d = Math.hypot(player.x - it.x, player.y - it.y);
@@ -127,6 +139,21 @@ function doAction() {
       UI.toast('새 밭을 개간했어요! 🌾'); UI.refreshHUD(); save(S);
       break;
     }
+    case 'collect': {
+      const r = collect(S, S.animals[a.i]);
+      if (r) { UI.toast(`${itemOf(r.product).name} ×${r.n} 획득! 🧺`); save(S); }
+      break;
+    }
+    case 'feed': {
+      const an = S.animals[a.i];
+      if (feed(S, an)) { UI.toast(`${ANIMALS[an.type].name}이(가) 냠냠! 생산 +50% 🐾`); save(S); }
+      break;
+    }
+    case 'pet': {
+      const an = S.animals[a.i];
+      if (pet(an)) { UI.toast(`${ANIMALS[an.type].name}이(가) 행복해해요 💕 생산 +25%`); save(S); }
+      break;
+    }
     case 'mailbox': UI.openShop(); break;
     case 'shipbox': UI.openSell(); break;
     case 'door': switchMap('home'); break;
@@ -135,9 +162,32 @@ function doAction() {
     case 'well': UI.toast('물이 맑아요. 물뿌리개가 찰랑찰랑 🪣'); break;
     case 'exit_village': UI.toast('마을로 가는 길이 잡초에 덮여 있어요 (2장에서 열려요)'); break;
     case 'exit_forest': UI.toast('숲의 다리가 부서져 있어요 (4장에서 열려요)'); break;
-    default: UI.toast('요리는 할머니의 레시피북을 찾은 뒤에! (1장)');
+    case 'stove_pan': openStove('pan'); break;
+    case 'stove_pot': openStove('pot'); break;
+    default: UI.toast('오븐과 절임통은 3장에서 열려요');
   }
 }
+// 레시피북 발견(1장 시작) → 요리 해금
+function openStove(tool) {
+  if (!S.flags.recipeBook) {
+    S.flags.recipeBook = true;
+    S.recipes.push(...STARTER_RECIPES.filter(id => !S.recipes.includes(id)));
+    save(S);
+    UI.showMemory('📖 낡은 레시피북', [
+      '부엌 서랍 깊숙한 곳, 손때 묻은 책 한 권.<br>표지에 무 그림이 수놓아져 있다.',
+      '펼치자 대부분의 페이지가 은은히 빛나는 <b>덩굴 문양</b>으로 잠겨 있었다.',
+      '『요리에는 마음이 담긴단다. 마음이 닿으면, 책이 답할 거야.』',
+      '…기본 레시피 3개를 익혔다! (감자구이 · 달걀프라이 · 무 샐러드)',
+    ], '요리를 시작하자!');
+    return;
+  }
+  if (tool === 'pot' && S.stats.earned < 2000) {
+    UI.toast(`냄비는 누적 판매 2,000G 달성 시 열려요 (현재 ${S.stats.earned.toLocaleString()}G)`);
+    return;
+  }
+  UI.openCooking(tool);
+}
+
 document.getElementById('act').addEventListener('pointerdown', e => { e.preventDefault(); doAction(); });
 addEventListener('keydown', e => { if (e.code === 'Space' || e.code === 'Enter') doAction(); });
 
@@ -202,11 +252,31 @@ function render(now) {
     });
   }
 
-  // 플레이어 (걷기 2프레임, 220ms)
+  // 동물 + 플레이어 (y-정렬)
+  const sprites = [];
+  if (mapId === 'farm') {
+    for (const an of S.animals) {
+      sprites.push({ y: an.y, draw: () => {
+        const bob = Math.abs(Math.sin(now / 300 + an.x)) * (an.idle > 0 ? 0 : 2.5);
+        const src = `assets/animals/${an.type}_adult.png`;
+        if (an.flip) {
+          ctx.save(); ctx.translate(an.x, 0); ctx.scale(-1, 1);
+          drawSprite(ctx, src, 0, an.y - bob, ANIMALS[an.type].h);
+          ctx.restore();
+        } else drawSprite(ctx, src, an.x, an.y - bob, ANIMALS[an.type].h);
+        if (readyCount(an) > 0) {
+          const fb = Math.sin(now / 280 + an.x) * 3;
+          drawSprite(ctx, itemOf(ANIMALS[an.type].product).icon, an.x, an.y - ANIMALS[an.type].h - 10 + fb, 16);
+        }
+      }});
+    }
+  }
   const frame = player.moving ? (Math.floor(player.animT / 0.22) % 2) + 1 : 1;
-  drawSprite(ctx, `assets/characters/hero_${player.dir}_${frame}.png`, player.x, player.y + 6, 54);
+  sprites.push({ y: player.y, draw: () =>
+    drawSprite(ctx, `assets/characters/hero_${player.dir}_${frame}.png`, player.x, player.y + 6, 54) });
+  sprites.sort((p, q) => p.y - q.y).forEach(s => s.draw());
 
-  if (DEBUG) {
+  if (OVERLAY) {
     ctx.strokeStyle = 'rgba(255,0,0,0.6)';
     for (const [x, y, w, h] of m.colliders) ctx.strokeRect(x, y, w, h);
     ctx.strokeStyle = 'rgba(0,200,255,0.8)';
@@ -246,6 +316,8 @@ function loop(t) {
   const dt = Math.min(0.1, (t - last) / 1000); last = t;
   if (!UI.modalOpen()) move(dt);
   tickFarm(S, dt * 1000);
+  tickRanch(S, dt * 1000);
+  if (mapId === 'farm') for (const an of S.animals) wander(an, dt);
   findAction();
   render(now);
   hudT += dt;
@@ -262,6 +334,8 @@ const CORE_ASSETS = [
   'assets/ui/icon_star.png', 'assets/ui/icon_coin.png', 'assets/ui/icon_firefly.png',
   'assets/ui/icon_hoe.png', 'assets/ui/icon_wateringcan.png', 'assets/ui/icon_heart.png', 'assets/ui/icon_bag.png',
   'assets/objects/sign.png',
+  ...Object.keys(ANIMALS).map(id => `assets/animals/${id}_adult.png`),
+  'assets/items/egg.png', 'assets/items/milk.png', 'assets/items/feed.png',
 ];
 
 async function boot() {
@@ -278,8 +352,8 @@ async function boot() {
     title.classList.add('hide');
     setTimeout(() => title.remove(), 600);
     const begin = () => {
-      const { elapsed, newlyMature } = settleOffline(S);
-      if (elapsed > 6e4 && S.flags.prologue) UI.showSettlement(elapsed, newlyMature);
+      const r = settleOffline(S);
+      if (r.elapsed > 6e4 && S.flags.prologue) UI.showSettlement(r.elapsed, r);
       initAutosave(S);
       requestAnimationFrame(t => { last = t; loop(t); });
     };

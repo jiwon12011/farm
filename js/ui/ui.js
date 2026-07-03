@@ -1,5 +1,9 @@
-// DOM UI: HUD·모달·토스트·상점·판매·씨앗 선택·정산·프롤로그
+// DOM UI: HUD·모달·토스트·상점·판매·씨앗 선택·요리·정산·스토리
 import { CROPS, SEASONS, seasonNow, shopSeeds, itemIcon } from '../data/crops.js';
+import { ITEMS, itemOf } from '../data/items.js';
+import { RECIPES, TOOLS } from '../data/recipes.js';
+import { ANIMALS, MAX_ANIMALS, newAnimal } from '../systems/ranch.js';
+import * as Cook from '../systems/cooking.js';
 import { save } from '../engine/save.js';
 
 const $ = sel => document.querySelector(sel);
@@ -44,31 +48,63 @@ export function closeModal() {
 }
 export const modalOpen = () => $('#modal-root').classList.contains('open');
 
-// ── 씨앗 상점 (우편함) ─────────────────────────────
-export function openShop() {
-  const ids = shopSeeds();
-  const rows = ids.map(id => {
-    const c = CROPS[id];
-    const afford = S.gold >= c.seed;
-    return `<div class="row">
-      <img src="${itemIcon(id)}" class="icon">
-      <div class="grow"><b>${c.name} 씨앗</b><small>${growLabel(c.grow)} · 판매 ${c.sell}G${c.regrow ? ' · 다회수확' : ''}</small></div>
-      <button class="buy ${afford ? '' : 'off'}" data-id="${id}">${c.seed}G</button>
-    </div>`;
-  }).join('');
+// ── 상점 (우편함): 씨앗 | 목장 ─────────────────────────────
+export function openShop(tab = 'seeds') {
+  let rows = '';
+  if (tab === 'seeds') {
+    rows = shopSeeds().map(id => {
+      const c = CROPS[id];
+      return `<div class="row">
+        <img src="${itemIcon(id)}" class="icon">
+        <div class="grow"><b>${c.name} 씨앗</b><small>${growLabel(c.grow)} · 판매 ${c.sell}G${c.regrow ? ' · 다회수확' : ''}</small></div>
+        <button class="buy ${S.gold >= c.seed ? '' : 'off'}" data-buy="seed" data-id="${id}">${c.seed}G</button>
+      </div>`;
+    }).join('');
+  } else {
+    const full = S.animals.length >= MAX_ANIMALS;
+    rows = `<div class="row">
+      <img src="assets/items/feed.png" class="icon">
+      <div class="grow"><b>사료 5개</b><small>동물에게 주면 생산 게이지 +50%</small></div>
+      <button class="buy ${S.gold >= 40 ? '' : 'off'}" data-buy="feed">40G</button>
+    </div>` + Object.entries(ANIMALS).map(([id, a]) => `<div class="row">
+      <img src="assets/animals/${id}_adult.png" class="icon">
+      <div class="grow"><b>${a.name}</b><small>${itemOf(a.product).name} ${growLabel(a.period)}마다 · 개당 ${itemOf(a.product).sell}G</small></div>
+      <button class="buy ${S.gold >= a.price && !full ? '' : 'off'}" data-buy="animal" data-id="${id}">${fmt(a.price)}G</button>
+    </div>`).join('');
+    if (full) rows = `<p class="sub">🏡 울타리가 가득 찼어요 (최대 ${MAX_ANIMALS}마리)</p>` + rows;
+  }
   const sheet = openModal(`
-    <h2>🌱 씨앗 카탈로그</h2>
-    <p class="sub">봄이네 잡화점 배달 주문서 — 계절 작물만 실려 있어요</p>
+    <h2>📮 봄이네 배달 주문서</h2>
+    <div class="tabs">
+      <button class="tab ${tab === 'seeds' ? 'on' : ''}" data-tab="seeds">🌱 씨앗</button>
+      <button class="tab ${tab === 'ranch' ? 'on' : ''}" data-tab="ranch">🐄 목장</button>
+    </div>
     <div class="list">${rows}</div>
     <button class="close-btn">닫기</button>`);
-  sheet.querySelectorAll('.buy').forEach(b => b.onclick = () => {
-    const c = CROPS[b.dataset.id];
-    if (S.gold < c.seed) return toast('골드가 부족해요!');
-    S.gold -= c.seed;
-    S.seeds[b.dataset.id] = (S.seeds[b.dataset.id] || 0) + 1;
+  sheet.querySelectorAll('.tab').forEach(b => b.onclick = () => openShop(b.dataset.tab));
+  sheet.querySelectorAll('[data-buy]').forEach(b => b.onclick = () => {
+    const kind = b.dataset.buy;
+    if (kind === 'seed') {
+      const c = CROPS[b.dataset.id];
+      if (S.gold < c.seed) return toast('골드가 부족해요!');
+      S.gold -= c.seed;
+      S.seeds[b.dataset.id] = (S.seeds[b.dataset.id] || 0) + 1;
+      toast(`${c.name} 씨앗을 샀어요`);
+    } else if (kind === 'feed') {
+      if (S.gold < 40) return toast('골드가 부족해요!');
+      S.gold -= 40;
+      S.inv.feed = (S.inv.feed || 0) + 5;
+      toast('사료 5개 도착! 🐾');
+    } else {
+      const a = ANIMALS[b.dataset.id];
+      if (S.animals.length >= MAX_ANIMALS) return toast('울타리가 가득 찼어요');
+      if (S.gold < a.price) return toast('골드가 부족해요!');
+      S.gold -= a.price;
+      S.animals.push(newAnimal(b.dataset.id));
+      toast(`${a.name}이(가) 울타리에 도착했어요! 🎉`);
+    }
     save(S); refreshHUD();
-    toast(`${c.name} 씨앗을 샀어요`);
-    openShop(); // 갱신
+    openShop(kind === 'seed' ? 'seeds' : 'ranch');
   });
   sheet.querySelector('.close-btn').onclick = closeModal;
 }
@@ -77,23 +113,23 @@ export function openShop() {
 export function openSell() {
   const ids = Object.keys(S.inv).filter(id => S.inv[id] > 0);
   const rows = ids.length ? ids.map(id => {
-    const c = CROPS[id];
+    const it = itemOf(id);
     return `<div class="row">
-      <img src="${itemIcon(id)}" class="icon">
-      <div class="grow"><b>${c.name}</b><small>${c.sell}G × ${S.inv[id]}개</small></div>
+      <img src="${it.icon}" class="icon">
+      <div class="grow"><b>${it.name}</b><small>${fmt(it.sell)}G × ${S.inv[id]}개</small></div>
       <button class="buy" data-id="${id}" data-n="1">1개</button>
       <button class="buy gold" data-id="${id}" data-n="all">전부</button>
     </div>`;
-  }).join('') : `<p class="empty">팔 수 있는 수확물이 없어요.<br>밭에서 작물을 키워보세요!</p>`;
+  }).join('') : `<p class="empty">팔 수 있는 것이 없어요.<br>작물을 키우고 요리를 만들어보세요!</p>`;
   const sheet = openModal(`
     <h2>📦 출하 상자</h2>
-    <p class="sub">넣어두면 행상인이 바로 값을 쳐줘요</p>
+    <p class="sub">넣어두면 행상인이 바로 값을 쳐줘요 — 요리는 재료보다 훨씬 비싸요!</p>
     <div class="list">${rows}</div>
     <button class="close-btn">닫기</button>`);
   sheet.querySelectorAll('.buy').forEach(b => b.onclick = () => {
     const id = b.dataset.id;
     const n = b.dataset.n === 'all' ? S.inv[id] : 1;
-    const earn = CROPS[id].sell * n;
+    const earn = itemOf(id).sell * n;
     S.inv[id] -= n;
     S.gold += earn;
     S.stats.earned += earn;
@@ -120,20 +156,134 @@ export function openSeedPicker(onPick) {
   sheet.querySelector('.close-btn').onclick = closeModal;
 }
 
+// ── 요리 (화로) ─────────────────────────────
+export function openCooking(tool) {
+  const st = Cook.stoveState(S, tool);
+  const toolName = TOOLS[tool].name;
+
+  if (st.status === 'cooking') {
+    const it = itemOf(st.recipe);
+    const sheet = openModal(`
+      <h2>🍳 ${toolName}</h2>
+      <div class="settle"><img src="${it.icon}">
+        <p><b>${it.name}</b> 조리 중...<br>${Cook.fmtLeft(st.left)} 남았어요</p></div>
+      <button class="close-btn">기다리기</button>`, 'center');
+    sheet.querySelector('.close-btn').onclick = closeModal;
+    return;
+  }
+  if (st.status === 'done') {
+    const id = Cook.collectDish(S, tool);
+    const it = itemOf(id);
+    save(S);
+    toast(`${it.name} 완성! 🍽️`);
+    if (id !== 'mystery_porridge' && !S.flags.ch1) {
+      S.flags.ch1 = true; save(S);
+      showMemory('📖 레시피북 — 첫 페이지', [
+        '요리 냄새에 이끌리듯, 레시피북의 덩굴 문양 하나가 스르르 풀렸다.',
+        '『맛있는 냄새는 배고픈 이만 부르는 게 아니란다. 밤의 작은 친구들도 코가 밝거든.』',
+        '…창밖에서 반딧불 하나가 반짝, 하고 사라졌다.',
+      ]);
+    }
+    return;
+  }
+
+  // idle: 레시피 목록 + 실험
+  const known = S.recipes.filter(id => RECIPES[id].tool === tool);
+  const rows = known.length ? known.map(id => {
+    const r = RECIPES[id];
+    const ok = Cook.hasIngredients(S, r.ing);
+    const ingTxt = Object.entries(r.ing).map(([i, n]) => `${itemOf(i).name}×${n}`).join(' ');
+    return `<div class="row">
+      <img src="assets/dishes/${id}.png" class="icon">
+      <div class="grow"><b>${r.name}</b><small>${ingTxt} · ${growLabel(r.time)} · ${fmt(r.sell)}G</small></div>
+      <button class="buy ${ok ? '' : 'off'}" data-cook="${id}">조리</button>
+    </div>`;
+  }).join('') : `<p class="empty">이 도구로 아는 레시피가 없어요.<br>재료를 조합해 실험해보세요!</p>`;
+  const sheet = openModal(`
+    <h2>🍳 ${toolName}</h2>
+    <div class="list">${rows}</div>
+    <button class="buy gold wide" id="exp-btn">🧪 실험하기 — 재료를 자유롭게 조합!</button>
+    <button class="close-btn">닫기</button>`);
+  sheet.querySelectorAll('[data-cook]').forEach(b => b.onclick = () => {
+    if (Cook.startCook(S, tool, b.dataset.cook)) {
+      save(S);
+      toast(`${RECIPES[b.dataset.cook].name} 조리 시작!`);
+      closeModal();
+    } else toast('재료가 부족해요');
+  });
+  sheet.querySelector('#exp-btn').onclick = () => openExperiment(tool);
+  sheet.querySelector('.close-btn').onclick = closeModal;
+}
+
+// ── 실험 조합 ─────────────────────────────
+function openExperiment(tool, sel = {}) {
+  const total = Object.values(sel).reduce((a, b) => a + b, 0);
+  const ids = Object.keys(S.inv).filter(id => S.inv[id] > 0 && !RECIPES[id] && id !== 'mystery_porridge');
+  const rows = ids.map(id => {
+    const it = itemOf(id);
+    const n = sel[id] || 0;
+    return `<div class="row">
+      <img src="${it.icon}" class="icon">
+      <div class="grow"><b>${it.name}</b><small>보유 ${S.inv[id]}개</small></div>
+      <button class="buy ${n > 0 ? '' : 'off'}" data-mod="${id}" data-d="-1">−</button>
+      <span class="count">${n}</span>
+      <button class="buy ${total < 4 && n < S.inv[id] ? '' : 'off'}" data-mod="${id}" data-d="1">＋</button>
+    </div>`;
+  }).join('');
+  const sheet = openModal(`
+    <h2>🧪 실험 조합 — ${TOOLS[tool].name}</h2>
+    <p class="sub">재료 2~4개를 넣고 끓여보세요. 새로운 레시피를 발견할지도!</p>
+    <div class="list">${rows || '<p class="empty">재료가 없어요</p>'}</div>
+    <button class="buy gold wide ${total >= 2 ? '' : 'off'}" id="go-btn">조합하기! (${total}/4)</button>
+    <button class="close-btn">뒤로</button>`);
+  sheet.querySelectorAll('[data-mod]').forEach(b => b.onclick = () => {
+    const id = b.dataset.mod, d = +b.dataset.d;
+    const next = { ...sel, [id]: Math.max(0, (sel[id] || 0) + d) };
+    if (!next[id]) delete next[id];
+    openExperiment(tool, next);
+  });
+  sheet.querySelector('#go-btn').onclick = () => {
+    if (total < 2) return toast('재료를 2개 이상 넣어주세요');
+    const res = Cook.experiment(S, tool, sel);
+    if (!res.ok) return toast('조리 중이거나 재료가 부족해요');
+    save(S);
+    closeModal();
+    if (res.discovered) toast(`✨ 새 레시피 발견: ${RECIPES[res.discovered].name}!`, 3200);
+    else if (res.mystery) toast('부글부글… 수상한 죽이 되어가고 있어요 💀');
+    else toast(`${RECIPES[res.recipe].name} 조리 시작!`);
+  };
+  sheet.querySelector('.close-btn').onclick = () => openCooking(tool);
+}
+
 // ── 오프라인 정산 ─────────────────────────────
-export function showSettlement(elapsed, newlyMature) {
+export function showSettlement(elapsed, { crops = 0, products = 0, dishes = 0 } = {}) {
   const mins = Math.floor(elapsed / 6e4);
   const t = mins >= 60 ? `${Math.floor(mins / 60)}시간 ${mins % 60}분` : `${mins}분`;
+  const lines = [];
+  if (crops > 0) lines.push(`🌾 작물 <b>${crops}개</b>가 수확을 기다려요`);
+  if (products > 0) lines.push(`🥚 동물 생산물 <b>${products}개</b>가 쌓였어요`);
+  if (dishes > 0) lines.push(`🍽️ 요리 <b>${dishes}개</b>가 완성됐어요`);
+  if (!lines.length) lines.push('농장이 무럭무럭 자라는 중이에요');
   const sheet = openModal(`
     <h2>🌙 돌아온 걸 환영해요!</h2>
     <p class="sub">${t} 동안 농장은 잘 자라고 있었어요</p>
     <div class="settle"><img src="assets/crops/common_growing.png">
-      <p>${newlyMature > 0 ? `<b>${newlyMature}개</b> 작물이 수확을 기다려요!` : '작물이 무럭무럭 자라는 중이에요'}</p></div>
+      <p>${lines.join('<br>')}</p></div>
     <button class="close-btn primary">농장으로!</button>`, 'center');
   sheet.querySelector('.close-btn').onclick = closeModal;
 }
 
-// ── 프롤로그 (할머니의 편지) ─────────────────────────────
+// ── 스토리 편지/기억 모달 ─────────────────────────────
+export function showMemory(title, paras, btn = '소중히 간직하기') {
+  const sheet = openModal(`
+    <div class="letter">
+      <h2>${title}</h2>
+      ${paras.map(p => `<p>${p}</p>`).join('')}
+    </div>
+    <button class="close-btn primary">${btn}</button>`, 'center');
+  sheet.querySelector('.close-btn').onclick = closeModal;
+}
+
 export function showPrologue(done) {
   const sheet = openModal(`
     <div class="letter">
