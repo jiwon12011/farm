@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>반딧불 농장</title>
+<meta name="theme-color" content="#2b3a67">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="assets/icon-192.png">
+<link rel="icon" href="assets/icon-192.png">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<canvas id="cv"></canvas>
+
+<div id="hud">
+  <div class="chip"><img src="assets/ui/icon_coin.png" alt="골드"><span id="gold">0</span></div>
+  <div class="chip"><img src="assets/ui/icon_firefly.png" alt="반딧불"><span id="firefly">0</span></div>
+  <div class="chip" id="clock">봄 1일차</div>
+</div>
+
+<div id="joyzone">
+  <div id="joy">
+    <div class="base"></div>
+    <img id="stick" src="assets/ui/joystick_stick.png" alt="">
+  </div>
+</div>
+
+<button id="act"><img src="" alt=""><span></span></button>
+
+<div id="toast"></div>
+<div id="modal-root"></div>
+<div id="fade"></div>
+
+<div id="title">
+  <h1>반딧불 농장</h1>
+  <p class="tag">할머니의 레시피</p>
+  <button id="start-btn">농장으로 가기 🌾</button>
+  <button id="reset-btn">처음부터 시작</button>
+</div>
+
+<div id="rotate">📱 세로로 돌려주세요</div>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
