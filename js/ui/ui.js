@@ -2,8 +2,13 @@
 import { CROPS, SEASONS, seasonNow, shopSeeds, itemIcon } from '../data/crops.js';
 import { ITEMS, itemOf } from '../data/items.js';
 import { RECIPES, TOOLS } from '../data/recipes.js';
+import { NPCS, MILESTONES } from '../data/npcs.js';
+import { REPAIRS, REPAIR_ORDER, nextRepair } from '../data/village.js';
 import { ANIMALS, MAX_ANIMALS, newAnimal } from '../systems/ranch.js';
 import * as Cook from '../systems/cooking.js';
+import { ensureOrders, deliver } from '../systems/orders.js';
+import { SLOT_COUNT, stock, unstock, collectPending } from '../systems/restaurant.js';
+import { GROWTH_MULT } from '../systems/farming.js';
 import { save } from '../engine/save.js';
 
 const $ = sel => document.querySelector(sel);
@@ -255,14 +260,173 @@ function openExperiment(tool, sel = {}) {
   sheet.querySelector('.close-btn').onclick = () => openCooking(tool);
 }
 
+// ── NPC 대화 ─────────────────────────────
+export function openDialog(npcId) {
+  const npc = NPCS[npcId];
+  const aff = S.affinity[npcId] || 0;
+  const today = new Date().toDateString();
+  const talked = S.talkDay[npcId] === today;
+  const line = npc.lines[(aff + (talked ? 0 : 1)) % npc.lines.length];
+  const hearts = '♥'.repeat(Math.min(10, aff)) + '♡'.repeat(Math.max(0, 10 - aff));
+
+  if (!talked) {
+    S.talkDay[npcId] = today;
+    S.affinity[npcId] = aff + 1;
+    if (MILESTONES[aff + 1]) {
+      S.gold += MILESTONES[aff + 1];
+      toast(`${npc.name}의 선물! +${MILESTONES[aff + 1]}G 💝`, 3000);
+    }
+    save(S); refreshHUD();
+  }
+
+  let extra = '';
+  if (npc.action === 'repairs') extra = `<button class="buy gold wide" id="npc-action">🔨 수리 의뢰 보기</button>`;
+  if (npc.hint) {
+    const unknown = Object.keys(RECIPES).filter(id => !S.recipes.includes(id));
+    if (unknown.length) {
+      const r = RECIPES[unknown[Math.floor(Math.random() * unknown.length)]];
+      const ings = Object.entries(r.ing).map(([i, n]) => `${itemOf(i).name}×${n}`).join(', ');
+      extra = `<p class="sub">💡 "${TOOLS[r.tool].name}에 ${ings}… 그런 요리가 있었는데 말이야~"</p>`;
+    }
+  }
+
+  const sheet = openModal(`
+    <div class="npc-head"><img src="${npc.sprite}"><div>
+      <h2>${npc.name}</h2><small class="hearts">${hearts}</small></div></div>
+    <p class="dialog-line">"${line}"</p>
+    ${extra}
+    <button class="close-btn">그럼 이만</button>`, 'center');
+  const act = sheet.querySelector('#npc-action');
+  if (act) act.onclick = () => openRepairs();
+  sheet.querySelector('.close-btn').onclick = closeModal;
+}
+
+// ── 수리 의뢰 (망치) ─────────────────────────────
+export function openRepairs() {
+  const next = nextRepair(S.village);
+  const rows = REPAIR_ORDER.map(id => {
+    const rp = REPAIRS[id];
+    const st = S.village[id];
+    const mats = Object.entries(rp.mats).map(([i, n]) =>
+      `${itemOf(i).name} ${Math.min(S.inv[i] || 0, n)}/${n}`).join(' · ');
+    let btn;
+    if (st.status === 'done') btn = `<span class="count">✅</span>`;
+    else if (st.status === 'building') btn = `<span class="count">🔨 ${Cook.fmtLeft(st.doneAt - Date.now())}</span>`;
+    else if (id !== next) btn = `<span class="count">🔒</span>`;
+    else {
+      const can = S.gold >= rp.gold && Object.entries(rp.mats).every(([i, n]) => (S.inv[i] || 0) >= n);
+      btn = `<button class="buy ${can ? '' : 'off'}" data-repair="${id}">${fmt(rp.gold)}G</button>`;
+    }
+    return `<div class="row">
+      <div class="grow"><b>${rp.name}</b><small>${rp.desc}<br>재료: ${mats} · 공사 ${growLabel(rp.ms)}</small></div>
+      ${btn}</div>`;
+  }).join('');
+  const sheet = openModal(`
+    <h2>🔨 망치의 작업 목록</h2>
+    <p class="sub">"…순서대로 고친다. 그게 내 방식."</p>
+    <div class="list">${rows}</div>
+    <button class="close-btn">닫기</button>`);
+  sheet.querySelectorAll('[data-repair]').forEach(b => b.onclick = () => {
+    const id = b.dataset.repair;
+    const rp = REPAIRS[id];
+    if (S.gold < rp.gold || !Object.entries(rp.mats).every(([i, n]) => (S.inv[i] || 0) >= n)) {
+      return toast('돈이나 재료가 부족해요');
+    }
+    S.gold -= rp.gold;
+    for (const [i, n] of Object.entries(rp.mats)) S.inv[i] -= n;
+    S.village[id] = { status: 'building', doneAt: Date.now() + rp.ms / GROWTH_MULT };
+    save(S); refreshHUD();
+    toast(`${rp.name} 공사 시작! 🔨`);
+    openRepairs();
+  });
+  sheet.querySelector('.close-btn').onclick = closeModal;
+}
+
+// ── 주문 게시판 ─────────────────────────────
+export function openBoard() {
+  ensureOrders(S);
+  save(S);
+  const rows = S.orders.list.map((o, i) => {
+    const it = itemOf(o.id);
+    const have = S.inv[o.id] || 0;
+    if (o.done) return `<div class="row"><img src="${it.icon}" class="icon">
+      <div class="grow"><b>${it.name} ×${o.n}</b><small>납품 완료</small></div><span class="count">✅</span></div>`;
+    return `<div class="row"><img src="${it.icon}" class="icon">
+      <div class="grow"><b>${it.name} ×${o.n}</b><small>보유 ${have}개 · 보상 ${fmt(o.reward)}G (1.5배)</small></div>
+      <button class="buy ${have >= o.n ? '' : 'off'}" data-deliver="${i}">납품</button></div>`;
+  }).join('');
+  const left = Cook.fmtLeft(Math.max(0, S.orders.refreshAt - Date.now()));
+  const sheet = openModal(`
+    <h2>📋 마을 주문 게시판</h2>
+    <p class="sub">주민들의 부탁 — ${left} 후 새 주문이 붙어요</p>
+    <div class="list">${rows}</div>
+    <button class="close-btn">닫기</button>`);
+  sheet.querySelectorAll('[data-deliver]').forEach(b => b.onclick = () => {
+    const i = +b.dataset.deliver;
+    if (deliver(S, i)) {
+      save(S); refreshHUD();
+      toast(`납품 완료! +${fmt(S.orders.list[i].reward)}G 💰`);
+      openBoard();
+    } else toast('수량이 부족해요');
+  });
+  sheet.querySelector('.close-btn').onclick = closeModal;
+}
+
+// ── 식당 진열대 ─────────────────────────────
+export function openRestaurant() {
+  const r = S.restaurant;
+  const slots = r.slots.map((slot, i) => {
+    if (!slot) return `<button class="row pick" data-slot="${i}">
+      <span class="icon slot-empty">＋</span>
+      <div class="grow"><b>빈 진열대</b><small>요리를 올려두면 자동으로 팔려요</small></div></button>`;
+    const it = itemOf(slot.id);
+    return `<div class="row"><img src="${it.icon}" class="icon">
+      <div class="grow"><b>${it.name} ×${slot.n}</b><small>30분마다 1개 · ${fmt(it.sell)}G씩</small></div>
+      <button class="buy" data-unstock="${i}">회수</button></div>`;
+  }).join('');
+  const sheet = openModal(`
+    <h2>🍽️ 반디네 부엌 — 진열대</h2>
+    <div class="row"><img src="assets/ui/icon_coin.png" class="icon">
+      <div class="grow"><b>쌓인 매출 ${fmt(Math.floor(r.pending))}G</b><small>자리를 비워도 12시간까지 팔려요</small></div>
+      <button class="buy gold ${Math.floor(r.pending) > 0 ? '' : 'off'}" id="collect-btn">수금</button></div>
+    <div class="list">${slots}</div>
+    <button class="close-btn">닫기</button>`);
+  sheet.querySelector('#collect-btn').onclick = () => {
+    const g = collectPending(S);
+    if (g > 0) { save(S); refreshHUD(); toast(`+${fmt(g)}G 수금! 💰`); openRestaurant(); }
+  };
+  sheet.querySelectorAll('[data-unstock]').forEach(b => b.onclick = () => {
+    unstock(S, +b.dataset.unstock); save(S); openRestaurant();
+  });
+  sheet.querySelectorAll('[data-slot]').forEach(b => b.onclick = () => {
+    const i = +b.dataset.slot;
+    const dishes = Object.keys(S.inv).filter(id => S.inv[id] > 0 && (RECIPES[id] || id === 'mystery_porridge'));
+    if (!dishes.length) return toast('진열할 요리가 없어요 — 부엌에서 만들어오세요!');
+    const rows = dishes.map(id => `<button class="row pick" data-dish="${id}">
+      <img src="${itemOf(id).icon}" class="icon">
+      <div class="grow"><b>${itemOf(id).name}</b><small>${fmt(itemOf(id).sell)}G</small></div>
+      <span class="count">×${S.inv[id]}</span></button>`).join('');
+    const sub = openModal(`<h2>무엇을 진열할까요?</h2><div class="list">${rows}</div>
+      <button class="close-btn">뒤로</button>`);
+    sub.querySelectorAll('[data-dish]').forEach(d => d.onclick = () => {
+      stock(S, i, d.dataset.dish, S.inv[d.dataset.dish]);
+      save(S); openRestaurant();
+    });
+    sub.querySelector('.close-btn').onclick = () => openRestaurant();
+  });
+  sheet.querySelector('.close-btn').onclick = closeModal;
+}
+
 // ── 오프라인 정산 ─────────────────────────────
-export function showSettlement(elapsed, { crops = 0, products = 0, dishes = 0 } = {}) {
+export function showSettlement(elapsed, { crops = 0, products = 0, dishes = 0, earned = 0, watered = 0 } = {}) {
   const mins = Math.floor(elapsed / 6e4);
   const t = mins >= 60 ? `${Math.floor(mins / 60)}시간 ${mins % 60}분` : `${mins}분`;
   const lines = [];
   if (crops > 0) lines.push(`🌾 작물 <b>${crops}개</b>가 수확을 기다려요`);
   if (products > 0) lines.push(`🥚 동물 생산물 <b>${products}개</b>가 쌓였어요`);
   if (dishes > 0) lines.push(`🍽️ 요리 <b>${dishes}개</b>가 완성됐어요`);
+  if (earned > 0) lines.push(`💰 식당에서 <b>${fmt(earned)}G</b>어치가 팔렸어요`);
+  if (watered > 0) lines.push(`💧 우물이 밭 ${watered}칸에 물을 줬어요`);
   if (!lines.length) lines.push('농장이 무럭무럭 자라는 중이에요');
   const sheet = openModal(`
     <h2>🌙 돌아온 걸 환영해요!</h2>

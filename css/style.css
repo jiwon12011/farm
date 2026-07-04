@@ -159,6 +159,16 @@ button.row.pick:active { background: #eed49a; }
 .settle img { width: 54px; }
 .settle p { color: #3a2413; font-size: 15px; line-height: 1.5; }
 
+.npc-head { display: flex; align-items: center; gap: 14px; }
+.npc-head img { height: 74px; object-fit: contain; image-rendering: pixelated; }
+.hearts { color: #d9534f; font-size: 14px; letter-spacing: 1px; }
+.dialog-line { color: #4a3423; font-size: 16px; line-height: 1.7; background: #f6e3b8; border-radius: 12px; padding: 14px; }
+.slot-empty {
+  display: flex; align-items: center; justify-content: center;
+  width: 42px; height: 42px; font-size: 24px; color: #a8834b;
+  border: 2px dashed #c9a56a; border-radius: 10px;
+}
+
 .letter { background: #fdf8ec; border: 2px dashed #d9b475; border-radius: 12px; padding: 18px 16px; }
 .letter h2 { margin-bottom: 12px; }
 .letter p { color: #4a3423; font-size: 15px; line-height: 1.75; margin-bottom: 10px; }

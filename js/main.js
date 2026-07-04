@@ -1,6 +1,9 @@
 // 반딧불 농장 — 부트스트랩 & 게임 루프
-import { MAPS, ARRIVE } from './data/maps.js';
+import { MAPS, TRANSITIONS, FIREFLY_SPOTS } from './data/maps.js';
 import { CROPS } from './data/crops.js';
+import { NPCS } from './data/npcs.js';
+import { REPAIRS, REPAIR_ORDER } from './data/village.js';
+import { tickRestaurant } from './systems/restaurant.js';
 import { img, preload, drawSprite } from './engine/assets.js';
 import { initInput, pollInput } from './engine/input.js';
 import { newState, load, save, wipe, initAutosave } from './engine/save.js';
@@ -90,6 +93,20 @@ function findAction() {
       else if (canPet(a)) consider(d, { kind: 'pet', i, label: '쓰다듬기', icon: 'icon_heart' });
     });
   }
+  // NPC (맵별)
+  for (const [nid, npc] of Object.entries(NPCS)) {
+    if (npc.map !== mapId) continue;
+    const d = Math.hypot(player.x - npc.x, player.y - npc.y);
+    if (d < 60) consider(d, { kind: 'talk', npc: nid, label: '대화', icon: 'icon_heart' });
+  }
+  // 숲 반딧불 채집
+  if (mapId === 'forest') {
+    FIREFLY_SPOTS.forEach((s, i) => {
+      if (S.forest.taken[i]) return;
+      const d = Math.hypot(player.x - s.x, player.y - s.y);
+      if (d < 48) consider(d, { kind: 'firefly', i, label: '줍기', icon: 'icon_firefly' });
+    });
+  }
   for (const it of m.interacts) {
     const d = Math.hypot(player.x - it.x, player.y - it.y);
     if (d > it.rr + 26) continue;
@@ -98,6 +115,9 @@ function findAction() {
       door: ['들어가기', null], door_out: ['나가기', null], bed: ['잠자기', 'icon_heart'],
       well: ['우물', null], exit_village: ['마을', null], exit_forest: ['숲', null],
       stove_pan: ['화로', null], stove_pot: ['화로', null], stove_oven: ['오븐', null], stove_jar: ['절임통', null],
+      board: ['게시판', 'icon_quest'], well_v: ['우물', null],
+      restaurant: ['식당', 'icon_coin'], shrine: ['제단', null],
+      exit_farm_s: ['농장', null], exit_farm_n: ['농장', null],
     }[it.id];
     consider(d, { kind: it.id, label: meta[0], icon: meta[1] });
   }
@@ -154,14 +174,45 @@ function doAction() {
       if (pet(an)) { UI.toast(`${ANIMALS[an.type].name}이(가) 행복해해요 💕 생산 +25%`); save(S); }
       break;
     }
+    case 'talk': UI.openDialog(a.npc); break;
+    case 'firefly':
+      S.forest.taken[a.i] = true;
+      S.fireflies++;
+      UI.toast('반딧불이 손끝에 앉았다… ✨ +1');
+      UI.refreshHUD(); save(S);
+      break;
     case 'mailbox': UI.openShop(); break;
     case 'shipbox': UI.openSell(); break;
-    case 'door': switchMap('home'); break;
-    case 'door_out': switchMap('farm'); break;
+    case 'door': switchMap('door'); break;
+    case 'door_out': switchMap('door_out'); break;
     case 'bed': save(S); UI.toast('푹 쉬었어요. 게임이 저장됐어요 💤'); break;
     case 'well': UI.toast('물이 맑아요. 물뿌리개가 찰랑찰랑 🪣'); break;
-    case 'exit_village': UI.toast('마을로 가는 길이 잡초에 덮여 있어요 (2장에서 열려요)'); break;
-    case 'exit_forest': UI.toast('숲의 다리가 부서져 있어요 (4장에서 열려요)'); break;
+    case 'well_v':
+      UI.toast(S.village.well.status === 'done'
+        ? '수리된 우물이 반짝반짝해요. 밭에 자동으로 물을 줘요 💧'
+        : '두레박이 부서져 있어요… 망치에게 부탁해볼까?');
+      break;
+    case 'exit_village':
+      if (!S.flags.ch1) UI.toast('마을로 가는 길이 잡초에 덮여 있어요 — 첫 요리를 만들면 소문이 날 거예요 🍳');
+      else switchMap('exit_village');
+      break;
+    case 'exit_forest':
+      if (S.village.bridge.status !== 'done') UI.toast('숲의 다리가 부서져 있어요 — 망치가 고칠 수 있을 것 같아요 🌉');
+      else switchMap('exit_forest');
+      break;
+    case 'exit_farm_s': switchMap('exit_farm_s'); break;
+    case 'exit_farm_n': switchMap('exit_farm_n'); break;
+    case 'board':
+      if (S.village.board.status !== 'done') UI.toast('게시판이 부서져 있어요 — 망치에게 수리를 부탁하세요 🔨');
+      else UI.openBoard();
+      break;
+    case 'restaurant':
+      if (S.village.restaurant.status !== 'done') UI.toast("문이 판자로 막혀 있어요… 할머니의 단골 식당 '반디네 부엌'이래요");
+      else UI.openRestaurant();
+      break;
+    case 'shrine':
+      UI.toast('돌 제단이 차갑게 식어 있어요… 희미하게 덩굴 문양이 보여요 (4장)');
+      break;
     case 'stove_pan': openStove('pan'); break;
     case 'stove_pot': openStove('pot'); break;
     default: UI.toast('오븐과 절임통은 3장에서 열려요');
@@ -192,17 +243,28 @@ document.getElementById('act').addEventListener('pointerdown', e => { e.preventD
 addEventListener('keydown', e => { if (e.code === 'Space' || e.code === 'Enter') doAction(); });
 
 // ── 맵 전환 ─────────────────────────────
-function switchMap(to) {
+function switchMap(via) {
+  const tr = TRANSITIONS[via];
+  if (!tr) return;
   const fade = document.getElementById('fade');
   fade.classList.add('on');
   setTimeout(() => {
-    mapId = to; S.map = to;
-    const p = ARRIVE[to];
-    player.x = p.x; player.y = p.y;
-    player.dir = to === 'home' ? 'up' : 'down';
+    mapId = tr.to; S.map = tr.to;
+    player.x = tr.at.x; player.y = tr.at.y;
+    player.dir = tr.to === 'home' ? 'up' : 'down';
+    if (tr.to === 'forest') resetForestDay();
     save(S);
     fade.classList.remove('on');
   }, 260);
+}
+
+// 숲 반딧불 스팟 매일 리셋
+function resetForestDay() {
+  const today = new Date().toDateString();
+  if (S.forest.day !== today) {
+    S.forest.day = today;
+    S.forest.taken = FIREFLY_SPOTS.map(() => false);
+  }
 }
 
 // ── 렌더 ─────────────────────────────
@@ -252,8 +314,48 @@ function render(now) {
     });
   }
 
-  // 동물 + 플레이어 (y-정렬)
+  // 마을 복구 오버레이
+  if (mapId === 'village') {
+    const v = S.village;
+    drawSprite(ctx, `assets/buildings/board_${v.board.status === 'done' ? 'new' : 'old'}.png`, 415, 690, 62);
+    drawSprite(ctx, `assets/buildings/well_${v.well.status === 'done' ? 'new' : 'old'}.png`, 182, 668, 76);
+    if (v.restaurant.status !== 'done') drawSprite(ctx, 'assets/buildings/fence_broken.png', 905, 892, 50);
+    for (const id of REPAIR_ORDER) {
+      if (S.village[id].status !== 'building') continue;
+      const pos = { board: [415, 640], well: [182, 600], restaurant: [905, 830], bridge: null }[id];
+      if (!pos) continue;
+      ctx.fillStyle = '#FFD97A';
+      ctx.font = '12px NeoDGM, monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('🔨 공사중…', pos[0], pos[1]);
+    }
+  }
+  // 숲: 다리 상태 & 반딧불 채집 스팟
+  if (mapId === 'farm') {
+    if (S.village.bridge.status !== 'done') drawSprite(ctx, 'assets/buildings/fence_broken.png', 620, 1170, 46);
+  }
+  if (mapId === 'forest') {
+    FIREFLY_SPOTS.forEach((s, i) => {
+      if (S.forest.taken[i]) return;
+      const tw = 0.6 + 0.4 * Math.sin(now / 350 + i * 2);
+      const g = ctx.createRadialGradient(s.x, s.y, 0, s.x, s.y, 16);
+      g.addColorStop(0, `rgba(255,217,122,${0.95 * tw})`);
+      g.addColorStop(1, 'rgba(255,217,122,0)');
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(s.x, s.y, 16, 0, 7); ctx.fill();
+      drawSprite(ctx, 'assets/objects/firefly.png', s.x, s.y + 8 + Math.sin(now / 400 + i) * 4, 18);
+    });
+  }
+
+  // 동물 + NPC + 플레이어 (y-정렬)
   const sprites = [];
+  for (const npc of Object.values(NPCS)) {
+    if (npc.map !== mapId) continue;
+    sprites.push({ y: npc.y, draw: () => {
+      const bob = Math.sin(now / 600 + npc.x) * 1.5;
+      drawSprite(ctx, npc.sprite, npc.x, npc.y + bob, npc.h);
+    }});
+  }
   if (mapId === 'farm') {
     for (const an of S.animals) {
       sprites.push({ y: an.y, draw: () => {
@@ -317,12 +419,45 @@ function loop(t) {
   if (!UI.modalOpen()) move(dt);
   tickFarm(S, dt * 1000);
   tickRanch(S, dt * 1000);
+  if (S.village.restaurant.status === 'done') tickRestaurant(S, dt * 1000);
   if (mapId === 'farm') for (const an of S.animals) wander(an, dt);
   findAction();
   render(now);
   hudT += dt;
-  if (hudT > 1) { hudT = 0; UI.refreshHUD(); S.px = player.x; S.py = player.y; }
+  if (hudT > 1) {
+    hudT = 0; UI.refreshHUD();
+    S.px = player.x; S.py = player.y;
+    checkRepairs();
+  }
   requestAnimationFrame(loop);
+}
+
+// 공사 완료 체크 → 챕터 비트
+function checkRepairs() {
+  const now = Date.now();
+  for (const id of REPAIR_ORDER) {
+    const st = S.village[id];
+    if (st.status !== 'building' || st.doneAt > now) continue;
+    st.status = 'done';
+    save(S);
+    if (id === 'board' && !S.flags.ch2) {
+      S.flags.ch2 = true; save(S);
+      UI.showMemory('🌙 2장 — 헛간의 발자국', [
+        '새 게시판 앞에 주민들이 모여 웅성거린다. 마을에 오랜만의 활기.',
+        '그런데 그날 밤 — 헛간 근처에서 <b>작은 발자국</b>을 보았다.<br>아이 같기도, 아닌 것 같기도 한.',
+        '발자국은 숲 쪽으로 이어지다… 문득 끊겨 있었다.<br>그 자리엔 희미한 금빛 가루만.',
+      ], '…누구지?');
+    } else if (id === 'restaurant' && !S.flags.ch3) {
+      S.flags.ch3 = true; save(S);
+      UI.showMemory("🍲 3장 — 되살아나는 부엌", [
+        "판자를 뜯어낸 '반디네 부엌'에 다시 불이 켜졌다.",
+        '『여기 옥수수스프가 그렇게 맛있었는데.』<br>『할머니가 끓이던 그 맛이 날까?』',
+        '옛 단골들이 하나둘 문을 두드린다.<br>이제 요리를 진열해두면, 자리를 비워도 팔릴 것이다.',
+      ], '개업이다!');
+    } else {
+      UI.toast(`${REPAIRS[id].name} 완공! 🎉`, 3000);
+    }
+  }
 }
 
 // ── 부트 ─────────────────────────────
@@ -336,6 +471,11 @@ const CORE_ASSETS = [
   'assets/objects/sign.png',
   ...Object.keys(ANIMALS).map(id => `assets/animals/${id}_adult.png`),
   'assets/items/egg.png', 'assets/items/milk.png', 'assets/items/feed.png',
+  'assets/maps/village.png', 'assets/maps/forest.png',
+  ...Object.values(NPCS).map(n => n.sprite),
+  'assets/buildings/board_old.png', 'assets/buildings/board_new.png',
+  'assets/buildings/well_old.png', 'assets/buildings/well_new.png',
+  'assets/buildings/fence_broken.png', 'assets/objects/firefly.png',
 ];
 
 async function boot() {
@@ -352,6 +492,7 @@ async function boot() {
     title.classList.add('hide');
     setTimeout(() => title.remove(), 600);
     const begin = () => {
+      if (mapId === 'forest') resetForestDay();
       const r = settleOffline(S);
       if (r.elapsed > 6e4 && S.flags.prologue) UI.showSettlement(r.elapsed, r);
       initAutosave(S);

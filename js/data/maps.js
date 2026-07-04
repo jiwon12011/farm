@@ -33,10 +33,57 @@ export const MAPS = {
     interacts: [
       { id: 'mailbox',  x: 692,  y: 342,  rr: 46 },
       { id: 'shipbox',  x: 749,  y: 378,  rr: 46 },
-      { id: 'door',     x: 878,  y: 302,  rr: 42, to: 'home' },
+      { id: 'door',     x: 878,  y: 302,  rr: 42 },
       { id: 'well',     x: 660,  y: 500,  rr: 50 },
       { id: 'exit_village', x: 600, y: 105,  rr: 55 },
       { id: 'exit_forest',  x: 620, y: 1155, rr: 55 },
+    ],
+  },
+  village: {
+    img: 'assets/maps/village.png', w: 1254, h: 1254,
+    spawn: { x: 628, y: 1180 },
+    plots: [],
+    colliders: [
+      r(0, 0, 39.2, 2.2),       // 상단 숲
+      r(0, 0, 1.6, 39.2),       // 좌측
+      r(37.4, 0, 2, 39.2),      // 우측
+      r(0, 37.6, 39.2, 2),      // 하단
+      r(14.5, 3, 10, 7.6),      // 잡화점
+      r(6.5, 10, 7, 5.6),       // 초원네 (파란 지붕)
+      r(27.5, 11, 8, 5.2),      // 빵집·화덕
+      r(16.8, 14.8, 5.4, 4.6),  // 분수
+      r(4.2, 16.8, 3, 3.4),     // 우물
+      r(9.5, 17, 4, 3.2),       // 노점
+      r(4.5, 22, 8, 7.6),       // 이장네
+      r(25, 20, 8, 7),          // 식당
+      r(29.5, 29.5, 5.6, 5),    // 망치네
+      r(1.6, 12.8, 2.4, 3.6),   // 벚나무
+    ],
+    interacts: [
+      { id: 'board',      x: 415,  y: 672,  rr: 52 },
+      { id: 'well_v',     x: 182,  y: 645,  rr: 50 },
+      { id: 'restaurant', x: 905,  y: 880,  rr: 56 },
+      { id: 'exit_farm_s',x: 628,  y: 1225, rr: 60 },
+    ],
+  },
+  forest: {
+    img: 'assets/maps/forest.png', w: 1254, h: 1254,
+    spawn: { x: 620, y: 130 },
+    plots: [],
+    colliders: [
+      r(0, 0, 39.2, 2),         // 가장자리 숲
+      r(0, 0, 1.8, 39.2),
+      r(37.2, 0, 2, 39.2),
+      r(0, 37.2, 39.2, 2),
+      r(5, 4, 5.4, 5),          // 왼쪽 고목
+      r(9.2, 23.4, 4.4, 3.8),   // 정령 제단 (도리이)
+      r(19.5, 6.5, 5, 4),       // 개울 상단 그루터기
+      r(28.8, 17.6, 4.6, 4.4),  // 다리·개울
+      r(12, 33.5, 6, 3),        // 하단 개울
+    ],
+    interacts: [
+      { id: 'shrine',     x: 355,  y: 880,  rr: 58 },
+      { id: 'exit_farm_n',x: 620,  y: 75,   rr: 60 },
     ],
   },
   home: {
@@ -68,8 +115,18 @@ export const MAPS = {
   },
 };
 
-// 맵 전환 시 도착 위치
-export const ARRIVE = {
-  home: { x: 628, y: 1040 },   // 집 안 입구
-  farm: { x: 878, y: 330 },    // 집 현관 앞
+// 숲 반딧불 채집 스팟 (매일 리셋)
+export const FIREFLY_SPOTS = [
+  { x: 380, y: 420 }, { x: 760, y: 320 }, { x: 980, y: 760 },
+  { x: 520, y: 1000 }, { x: 840, y: 1110 },
+];
+
+// 맵 전환: 트리거 id → { to, at(도착 위치) }
+export const TRANSITIONS = {
+  door:         { to: 'home',    at: { x: 628, y: 1040 } },
+  door_out:     { to: 'farm',    at: { x: 878, y: 330 } },
+  exit_village: { to: 'village', at: { x: 628, y: 1175 } },
+  exit_farm_s:  { to: 'farm',    at: { x: 600, y: 150 } },
+  exit_forest:  { to: 'forest',  at: { x: 620, y: 130 } },
+  exit_farm_n:  { to: 'farm',    at: { x: 620, y: 1105 } },
 };

@@ -13,6 +13,15 @@ export function newState() {
     animals: [],
     stoves: { pan: null, pot: null },
     recipes: [],
+    village: {
+      board: { status: 'broken' }, well: { status: 'broken' },
+      restaurant: { status: 'broken' }, bridge: { status: 'broken' },
+    },
+    affinity: {},
+    talkDay: {},
+    orders: { list: [], refreshAt: 0 },
+    restaurant: { slots: [null, null, null, null], pending: 0 },
+    forest: { day: '', taken: [] },
     map: 'farm',
     px: 620, py: 400,
     flags: {},
@@ -31,11 +40,20 @@ export function load() {
   } catch { return null; }
 }
 
-// Phase 2 필드 채우기 (기존 세이브 호환)
+// Phase 2·3 필드 채우기 (기존 세이브 호환)
 function migrate(s) {
   s.animals ??= [];
   s.stoves ??= { pan: null, pot: null };
   s.recipes ??= [];
+  s.village ??= {
+    board: { status: 'broken' }, well: { status: 'broken' },
+    restaurant: { status: 'broken' }, bridge: { status: 'broken' },
+  };
+  s.affinity ??= {};
+  s.talkDay ??= {};
+  s.orders ??= { list: [], refreshAt: 0 };
+  s.restaurant ??= { slots: [null, null, null, null], pending: 0 };
+  s.forest ??= { day: '', taken: [] };
   return s;
 }
 
