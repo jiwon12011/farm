@@ -3,13 +3,13 @@ import { CROPS, SEASONS, seasonNow, shopSeeds, itemIcon } from '../data/crops.js
 import { ITEMS, itemOf } from '../data/items.js';
 import { RECIPES, TOOLS } from '../data/recipes.js';
 import { NPCS, MILESTONES } from '../data/npcs.js';
-import { REPAIRS, REPAIR_ORDER, nextRepair } from '../data/village.js';
+import { REPAIRS, REPAIR_ORDER, nextRepair, festivalMult } from '../data/village.js';
 import { ANIMALS, MAX_ANIMALS, newAnimal } from '../systems/ranch.js';
 import * as Cook from '../systems/cooking.js';
 import { ensureOrders, deliver } from '../systems/orders.js';
 import { SLOT_COUNT, stock, unstock, collectPending } from '../systems/restaurant.js';
 import { GROWTH_MULT } from '../systems/farming.js';
-import { BLESSINGS, blessLeft, buyBless, offer, offerValue, sellMult, activeBlessCount, WILD_CAP } from '../systems/spirit.js';
+import { BLESSINGS, EXCHANGES, blessLeft, buyBless, offer, offerValue, sellMult, activeBlessCount, wildCap } from '../systems/spirit.js';
 import { weatherToday } from '../systems/season.js';
 import { save } from '../engine/save.js';
 
@@ -59,10 +59,16 @@ export function closeModal() {
 export const modalOpen = () => $('#modal-root').classList.contains('open');
 
 // ── 상점 (우편함): 씨앗 | 목장 ─────────────────────────────
+const GOODS = { flour: { price: 80 } }; // 가공품 (빵집 화덕 완공 시)
+
 export function openShop(tab = 'seeds') {
+  const greenhouse = S.village.greenhouse.status === 'done';
+  const bakery = S.village.bakery.status === 'done';
   let rows = '';
   if (tab === 'seeds') {
-    rows = shopSeeds().map(id => {
+    let ids = shopSeeds(Date.now(), greenhouse);
+    if (greenhouse && S.flags.ch5) ids = [...ids, 'star_rice'];
+    rows = (greenhouse ? `<p class="sub">🪴 온실 덕분에 계절에 상관없이 모든 씨앗이 있어요</p>` : '') + ids.map(id => {
       const c = CROPS[id];
       return `<div class="row">
         <img src="${itemIcon(id)}" class="icon">
@@ -70,13 +76,19 @@ export function openShop(tab = 'seeds') {
         <button class="buy ${S.gold >= c.seed ? '' : 'off'}" data-buy="seed" data-id="${id}">${c.seed}G</button>
       </div>`;
     }).join('');
+  } else if (tab === 'goods') {
+    rows = Object.entries(GOODS).map(([id, g]) => `<div class="row">
+      <img src="${itemOf(id).icon}" class="icon">
+      <div class="grow"><b>${itemOf(id).name}</b><small>오븐 요리의 기본 재료</small></div>
+      <button class="buy ${S.gold >= g.price ? '' : 'off'}" data-buy="goods" data-id="${id}">${g.price}G</button>
+    </div>`).join('');
   } else {
     const full = S.animals.length >= MAX_ANIMALS;
     rows = `<div class="row">
       <img src="assets/items/feed.png" class="icon">
       <div class="grow"><b>사료 5개</b><small>동물에게 주면 생산 게이지 +50%</small></div>
       <button class="buy ${S.gold >= 40 ? '' : 'off'}" data-buy="feed">40G</button>
-    </div>` + Object.entries(ANIMALS).map(([id, a]) => `<div class="row">
+    </div>` + Object.entries(ANIMALS).filter(([, a]) => !a.hidden).map(([id, a]) => `<div class="row">
       <img src="assets/animals/${id}_adult.png" class="icon">
       <div class="grow"><b>${a.name}</b><small>${itemOf(a.product).name} ${growLabel(a.period)}마다 · 개당 ${itemOf(a.product).sell}G</small></div>
       <button class="buy ${S.gold >= a.price && !full ? '' : 'off'}" data-buy="animal" data-id="${id}">${fmt(a.price)}G</button>
@@ -88,6 +100,7 @@ export function openShop(tab = 'seeds') {
     <div class="tabs">
       <button class="tab ${tab === 'seeds' ? 'on' : ''}" data-tab="seeds">🌱 씨앗</button>
       <button class="tab ${tab === 'ranch' ? 'on' : ''}" data-tab="ranch">🐄 목장</button>
+      ${bakery ? `<button class="tab ${tab === 'goods' ? 'on' : ''}" data-tab="goods">🥖 가공품</button>` : ''}
     </div>
     <div class="list">${rows}</div>
     <button class="close-btn">닫기</button>`);
@@ -100,6 +113,12 @@ export function openShop(tab = 'seeds') {
       S.gold -= c.seed;
       S.seeds[b.dataset.id] = (S.seeds[b.dataset.id] || 0) + 1;
       toast(`${c.name} 씨앗을 샀어요`);
+    } else if (kind === 'goods') {
+      const g = GOODS[b.dataset.id];
+      if (S.gold < g.price) return toast('골드가 부족해요!');
+      S.gold -= g.price;
+      S.inv[b.dataset.id] = (S.inv[b.dataset.id] || 0) + 1;
+      toast(`${itemOf(b.dataset.id).name}을(를) 샀어요`);
     } else if (kind === 'feed') {
       if (S.gold < 40) return toast('골드가 부족해요!');
       S.gold -= 40;
@@ -114,15 +133,15 @@ export function openShop(tab = 'seeds') {
       toast(`${a.name}이(가) 울타리에 도착했어요! 🎉`);
     }
     save(S); refreshHUD();
-    openShop(kind === 'seed' ? 'seeds' : 'ranch');
+    openShop(kind === 'seed' ? 'seeds' : kind === 'goods' ? 'goods' : 'ranch');
   });
   sheet.querySelector('.close-btn').onclick = closeModal;
 }
 
 // ── 출하 상자 (판매) ─────────────────────────────
 export function openSell() {
-  const mult = sellMult(S);
-  const ids = Object.keys(S.inv).filter(id => S.inv[id] > 0);
+  const mult = sellMult(S) * festivalMult(S);
+  const ids = Object.keys(S.inv).filter(id => S.inv[id] > 0 && itemOf(id).sell > 0);
   const rows = ids.length ? ids.map(id => {
     const it = itemOf(id);
     return `<div class="row">
@@ -132,7 +151,10 @@ export function openSell() {
       <button class="buy gold" data-id="${id}" data-n="all">전부</button>
     </div>`;
   }).join('') : `<p class="empty">팔 수 있는 것이 없어요.<br>작물을 키우고 요리를 만들어보세요!</p>`;
-  const blessNote = mult > 1 ? `<p class="sub">✨ 금빛 흥정의 축복 — 판매가 +20%!</p>` : '';
+  const notes = [];
+  if (sellMult(S) > 1) notes.push('✨ 금빛 흥정의 축복 +20%');
+  if (festivalMult(S) > 1) notes.push('🎪 주말 축제 +25%');
+  const blessNote = notes.length ? `<p class="sub">${notes.join(' · ')}</p>` : '';
   const sheet = openModal(`
     <h2>📦 출하 상자</h2>
     <p class="sub">넣어두면 행상인이 바로 값을 쳐줘요 — 요리는 재료보다 훨씬 비싸요!</p>
@@ -231,7 +253,8 @@ export function openCooking(tool) {
 // ── 실험 조합 ─────────────────────────────
 function openExperiment(tool, sel = {}) {
   const total = Object.values(sel).reduce((a, b) => a + b, 0);
-  const ids = Object.keys(S.inv).filter(id => S.inv[id] > 0 && !RECIPES[id] && id !== 'mystery_porridge');
+  // 요리도 재료가 될 수 있다 (빵→허니토스트, 치즈→트러플 파스타)
+  const ids = Object.keys(S.inv).filter(id => S.inv[id] > 0 && id !== 'mystery_porridge');
   const rows = ids.map(id => {
     const it = itemOf(id);
     const n = sel[id] || 0;
@@ -408,7 +431,8 @@ export function openRestaurant() {
   });
   sheet.querySelectorAll('[data-slot]').forEach(b => b.onclick = () => {
     const i = +b.dataset.slot;
-    const dishes = Object.keys(S.inv).filter(id => S.inv[id] > 0 && (RECIPES[id] || id === 'mystery_porridge'));
+    const dishes = Object.keys(S.inv).filter(id =>
+      S.inv[id] > 0 && (RECIPES[id] || id === 'mystery_porridge') && itemOf(id).sell > 0);
     if (!dishes.length) return toast('진열할 요리가 없어요 — 부엌에서 만들어오세요!');
     const rows = dishes.map(id => `<button class="row pick" data-dish="${id}">
       <img src="${itemOf(id).icon}" class="icon">
@@ -439,6 +463,12 @@ export function openShrine(tab = 'bless') {
         <div class="grow"><b>${b.name}</b><small>${b.desc}</small></div>
         ${state}</div>`;
     }).join('');
+    // 전설 교환
+    rows += Object.entries(EXCHANGES).filter(([, e]) => !e.needCh5 || S.flags.ch5).map(([id, e]) => `<div class="row">
+      <img src="${e.icon}" class="icon">
+      <div class="grow"><b>${e.name}</b><small>${e.desc}</small></div>
+      <button class="buy ${S.fireflies >= e.cost ? 'gold' : 'off'}" data-exchange="${id}">${e.cost}✨</button>
+    </div>`).join('');
   } else {
     const dishes = Object.keys(S.inv).filter(id => S.inv[id] > 0 && (RECIPES[id] || id === 'mystery_porridge'));
     rows = dishes.length ? dishes.map(id => {
@@ -452,7 +482,7 @@ export function openShrine(tab = 'bless') {
   }
   const sheet = openModal(`
     <h2>🌿 정령의 제단</h2>
-    <p class="sub">보유 반딧불 ✨${fmt(S.fireflies)} · 밤에는 들판의 반딧불을 잡을 수 있어요 (하루 ${WILD_CAP}마리)</p>
+    <p class="sub">보유 반딧불 ✨${fmt(S.fireflies)} · 밤에는 들판의 반딧불을 잡을 수 있어요 (하루 ${wildCap(S)}마리)</p>
     <div class="tabs">
       <button class="tab ${tab === 'bless' ? 'on' : ''}" data-tab="bless">🌙 축복</button>
       <button class="tab ${tab === 'offer' ? 'on' : ''}" data-tab="offer">🍲 공양</button>
@@ -467,6 +497,23 @@ export function openShrine(tab = 'bless') {
       toast(id === 'instant' ? '달빛이 쏟아진다… 밭의 작물이 일제히 여물었다! 🌕' : `${BLESSINGS[id].name}의 축복을 받았어요 ✨`, 3000);
       openShrine('bless');
     } else toast(id === 'instant' && S.fireflies >= BLESSINGS.instant.cost ? '자라는 중인 작물이 없어요' : '반딧불이 부족해요');
+  });
+  sheet.querySelectorAll('[data-exchange]').forEach(b => b.onclick = () => {
+    const id = b.dataset.exchange;
+    const e = EXCHANGES[id];
+    if (S.fireflies < e.cost) return toast('반딧불이 부족해요');
+    if (id === 'star_sheep') {
+      if (S.animals.length >= MAX_ANIMALS) return toast('울타리가 가득 찼어요');
+      S.fireflies -= e.cost;
+      S.animals.push(newAnimal('star_sheep'));
+      toast('별빛으로 짜인 양이 울타리로 걸어갔다… 🌟');
+    } else {
+      S.fireflies -= e.cost;
+      S.seeds.fireflyflower = (S.seeds.fireflyflower || 0) + 1;
+      toast('반딧꽃 씨앗을 받았어요 — 밤이슬을 좋아한대요 🌼');
+    }
+    save(S); refreshHUD();
+    openShrine('bless');
   });
   sheet.querySelectorAll('[data-offer]').forEach(b => b.onclick = () => {
     const n = offer(S, b.dataset.offer);

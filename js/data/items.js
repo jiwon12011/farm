@@ -16,12 +16,16 @@ Object.assign(ITEMS, {
   goat_milk: { name: '염소젖', sell: 105, icon: 'assets/items/goat_milk.png' },
   wool:      { name: '양털',   sell: 220, icon: 'assets/items/wool.png' },
   milk:      { name: '우유',   sell: 180, icon: 'assets/items/milk.png' },
+  honey:     { name: '꿀',     sell: 130, icon: 'assets/items/honey.png' },
+  truffle:   { name: '트러플', sell: 520, icon: 'assets/items/truffle.png' },
+  star_wool: { name: '별빛양털', sell: 1200, icon: 'assets/items/star_wool.png' },
   feed:      { name: '사료',   sell: 4,   icon: 'assets/items/feed.png' },
+  flour:     { name: '밀가루', sell: 40,  icon: 'assets/items/flour.png' }, // 빵집 화덕에서 구매
 });
 
 // 요리
 for (const [id, r] of Object.entries(RECIPES)) {
-  ITEMS[id] = { name: r.name, sell: r.sell, icon: `assets/dishes/${id}.png` };
+  ITEMS[id] = { name: r.name, sell: r.sell, icon: r.icon || `assets/dishes/${id}.png` };
 }
 ITEMS.mystery_porridge = { name: '수상한 죽', sell: 5, icon: 'assets/dishes/mystery_porridge.png' };
 

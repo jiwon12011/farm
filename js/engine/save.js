@@ -11,11 +11,13 @@ export function newState() {
     plots: Array.from({ length: 20 }, (_, i) => ({ id: i, crop: null, progress: 0, wateredUntil: 0 })),
     unlocked: 6,
     animals: [],
-    stoves: { pan: null, pot: null },
+    stoves: { pan: null, pot: null, oven: null, jar: null },
     recipes: [],
     village: {
       board: { status: 'broken' }, well: { status: 'broken' },
       restaurant: { status: 'broken' }, bridge: { status: 'broken' },
+      bakery: { status: 'broken' }, greenhouse: { status: 'broken' },
+      lantern: { status: 'broken' }, festival: { status: 'broken' },
     },
     affinity: {},
     talkDay: {},
@@ -45,11 +47,13 @@ export function load() {
 function migrate(s) {
   s.animals ??= [];
   s.stoves ??= { pan: null, pot: null };
+  s.stoves.oven ??= null;
+  s.stoves.jar ??= null;
   s.recipes ??= [];
-  s.village ??= {
-    board: { status: 'broken' }, well: { status: 'broken' },
-    restaurant: { status: 'broken' }, bridge: { status: 'broken' },
-  };
+  s.village ??= {};
+  for (const k of ['board', 'well', 'restaurant', 'bridge', 'bakery', 'greenhouse', 'lantern', 'festival']) {
+    s.village[k] ??= { status: 'broken' };
+  }
   s.affinity ??= {};
   s.talkDay ??= {};
   s.orders ??= { list: [], refreshAt: 0 };

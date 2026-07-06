@@ -7,6 +7,10 @@ export const ANIMALS = {
   goat:    { name: '염소', price: 1500, product: 'goat_milk', period: 120 * 6e4, h: 34 },
   sheep:   { name: '양',   price: 2500, product: 'wool',      period: 240 * 6e4, h: 32 },
   cow:     { name: '소',   price: 4000, product: 'milk',      period: 180 * 6e4, h: 40 },
+  beehive: { name: '꿀벌통', price: 3000, product: 'honey',   period: 120 * 6e4, h: 30, still: true },
+  pig:     { name: '돼지', price: 8000, product: 'truffle',   period: 360 * 6e4, h: 38 },
+  // 전설 (5장 해금, 정령 제단에서 반딧불로 교환)
+  star_sheep: { name: '별양', price: 0, product: 'star_wool', period: 480 * 6e4, h: 34, hidden: true },
 };
 
 export const PEN = { x0: 832, y0: 468, x1: 1020, y1: 600 }; // 농장 울타리 안 배회 영역
@@ -61,8 +65,9 @@ export function pet(a) {
 
 export const canPet = a => a.petDay !== dayKey();
 
-// 배회 AI (렌더 프레임마다)
+// 배회 AI (렌더 프레임마다) — 꿀벌통은 제자리
 export function wander(a, dt) {
+  if (ANIMALS[a.type].still) return;
   if (a.idle > 0) { a.idle -= dt; return; }
   if (!a.tx) {
     a.tx = PEN.x0 + Math.random() * (PEN.x1 - PEN.x0);

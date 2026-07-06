@@ -11,7 +11,7 @@ export function ensureOrders(state, now = Date.now()) {
     ...shopSeeds(now).filter(id => id !== 'radish'),
     'radish', 'egg',
     ...(state.animals.some(a => a.type === 'cow') ? ['milk'] : []),
-    ...state.recipes,
+    ...state.recipes.filter(id => itemOf(id).sell > 0), // 달빛 스튜 등 비매품 제외
   ];
   const list = [];
   const used = new Set();

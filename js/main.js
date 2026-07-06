@@ -10,7 +10,7 @@ import { newState, load, save, wipe, initAutosave } from './engine/save.js';
 import { tickFarm, plant, water, harvest, plotCost, stageSprite, GROWTH_MULT } from './systems/farming.js';
 import { ANIMALS, tickRanch, wander, readyCount, collect, feed, pet, canPet } from './systems/ranch.js';
 import { settleOffline } from './systems/offline.js';
-import { nightAlpha, isNight, catchWild, WILD_CAP, growthBoost, ranchBoost } from './systems/spirit.js';
+import { nightAlpha, isNight, catchWild, wildCap, growthBoost, ranchBoost } from './systems/spirit.js';
 import { weatherToday, rainWater, SEASON_TINTS } from './systems/season.js';
 import { itemOf } from './data/items.js';
 import { STARTER_RECIPES } from './data/recipes.js';
@@ -198,7 +198,7 @@ function doAction() {
       break;
     case 'wildfly': {
       if (catchWild(S)) {
-        UI.toast(`반딧불을 살포시 감쌌다 ✨ +1 (오늘 ${S.spirit.wildCaught}/${WILD_CAP})`);
+        UI.toast(`반딧불을 살포시 감쌌다 ✨ +1 (오늘 ${S.spirit.wildCaught}/${wildCap(S)})`);
         const f = fireflies[a.i]; // 다른 곳에 재출현
         f.x = 60 + Math.random() * 1130;
         f.y = 60 + Math.random() * 1130;
@@ -244,11 +244,24 @@ function doAction() {
           '『정령들은 죽은 게 아니야. 배가 고파서 잠든 것뿐.<br>맛있는 걸 바치면… 조금씩 깨어날 거야.』',
           '달빛에 비친 반디의 발끝은, 땅에 닿아 있지 않았다.',
         ], '제단에 요리를 바쳐보자');
+      } else if (S.flags.ch5 && !S.flags.ending && (S.inv.moonlight_stew || 0) > 0) {
+        S.inv.moonlight_stew--;
+        S.flags.ending = true;
+        S.fireflies += 100;
+        save(S);
+        UI.showMemory('🌠 에필로그 — 달빛 스튜', [
+          '김이 오르는 스튜를 제단에 올리자, 숲 전체가 숨을 들이쉬었다.',
+          '수천 개의 반딧불이 일제히 떠올랐다. 그 빛 한가운데,<br>빛나는 사슴 — 대정령 <b>루미</b>가 고개를 숙였다.',
+          '『그 맛이야. 그 아이가 매년 달이 가장 밝은 밤에 끓여주던.』<br>『약속은 다시 이어졌다. 이 마을의 계절이 다시 돌 것이다.』',
+          '멀리 마을에서 웃음소리가 들려온다.<br>축제의 불빛, 되살아난 부엌, 그리고 밭 위의 반딧불.',
+          '— 할머니, 저 잘하고 있죠? 🌾<br><b>반딧불 대축제가 시작됐다! (✨+100)</b>',
+        ], '농장은 계속된다');
       } else UI.openShrine();
       break;
     case 'stove_pan': openStove('pan'); break;
     case 'stove_pot': openStove('pot'); break;
-    default: UI.toast('오븐과 절임통은 3장에서 열려요');
+    case 'stove_oven': openStove('oven'); break;
+    case 'stove_jar': openStove('jar'); break;
   }
 }
 // 레시피북 발견(1장 시작) → 요리 해금
@@ -267,6 +280,14 @@ function openStove(tool) {
   }
   if (tool === 'pot' && S.stats.earned < 2000) {
     UI.toast(`냄비는 누적 판매 2,000G 달성 시 열려요 (현재 ${S.stats.earned.toLocaleString()}G)`);
+    return;
+  }
+  if (tool === 'oven' && !S.flags.ch3) {
+    UI.toast("오븐은 식당 '반디네 부엌'을 수리하면 열려요 (3장)");
+    return;
+  }
+  if (tool === 'jar' && !S.flags.ch4) {
+    UI.toast('절임통은 숲 깊은 곳의 제단을 찾으면 열려요 (4장)');
     return;
   }
   UI.openCooking(tool);
@@ -353,9 +374,15 @@ function render(now) {
     drawSprite(ctx, `assets/buildings/board_${v.board.status === 'done' ? 'new' : 'old'}.png`, 415, 690, 62);
     drawSprite(ctx, `assets/buildings/well_${v.well.status === 'done' ? 'new' : 'old'}.png`, 182, 668, 76);
     if (v.restaurant.status !== 'done') drawSprite(ctx, 'assets/buildings/fence_broken.png', 905, 892, 50);
+    drawSprite(ctx, `assets/buildings/bakery_oven${v.bakery.status === 'done' ? '' : '_broken'}.png`, 1010, 560, 70);
+    drawSprite(ctx, `assets/buildings/lantern_tower_${v.lantern.status === 'done' ? 'new' : 'broken'}.png`, 760, 620, 84);
+    drawSprite(ctx, `assets/buildings/festival_stage_${v.festival.status === 'done' ? 'new' : 'broken'}.png`, 300, 1080, 110);
     for (const id of REPAIR_ORDER) {
       if (S.village[id].status !== 'building') continue;
-      const pos = { board: [415, 640], well: [182, 600], restaurant: [905, 830], bridge: null }[id];
+      const pos = {
+        board: [415, 640], well: [182, 600], restaurant: [905, 830],
+        bakery: [1010, 505], lantern: [760, 550], festival: [300, 1005],
+      }[id];
       if (!pos) continue;
       ctx.fillStyle = '#FFD97A';
       ctx.font = '12px NeoDGM, monospace';
@@ -366,6 +393,15 @@ function render(now) {
   // 숲: 다리 상태 & 반딧불 채집 스팟
   if (mapId === 'farm') {
     if (S.village.bridge.status !== 'done') drawSprite(ctx, 'assets/buildings/fence_broken.png', 620, 1170, 46);
+    // 온실 (좌하단 공터) — 완공 전엔 골조만
+    const gh = S.village.greenhouse.status;
+    drawSprite(ctx, `assets/buildings/greenhouse_${gh === 'done' ? 'new' : 'frame'}.png`, 350, 990, 116);
+    if (gh === 'building') {
+      ctx.fillStyle = '#FFD97A';
+      ctx.font = '12px NeoDGM, monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('🔨 공사중…', 350, 900);
+    }
   }
   if (mapId === 'forest') {
     FIREFLY_SPOTS.forEach((s, i) => {
@@ -447,7 +483,15 @@ function render(now) {
       ctx.fillStyle = g;
       ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill();
     };
-    for (const L of NIGHT_LIGHTS[mapId] || []) {
+    const lights = [...(NIGHT_LIGHTS[mapId] || [])];
+    if (mapId === 'village' && S.village.lantern.status === 'done') { // 등불탑 점등
+      lights.push(
+        { x: 760, y: 590, r: 140, c: '255,217,122' },
+        { x: 450, y: 380, r: 70, c: '255,214,140' },
+        { x: 950, y: 1050, r: 70, c: '255,214,140' },
+      );
+    }
+    for (const L of lights) {
       const flick = 1 + 0.06 * Math.sin(now / 180 + L.x); // 촛불 흔들림
       glow(L.x - cam.x, L.y - cam.y, L.r * flick, L.c, 0.34 * na);
     }
@@ -535,6 +579,7 @@ function loop(t) {
     S.px = player.x; S.py = player.y;
     rainWater(S); // 비 오는 날엔 밭이 계속 촉촉
     checkRepairs();
+    checkChapter5();
   }
   requestAnimationFrame(loop);
 }
@@ -567,6 +612,22 @@ function checkRepairs() {
   }
 }
 
+// 5장: 온실 완공 + 레시피 20종 → 루미 재회, 전설 콘텐츠·달빛 스튜 해금
+function checkChapter5() {
+  if (S.flags.ch5 || S.village.greenhouse.status !== 'done') return;
+  if (S.recipes.filter(id => id !== 'moonlight_stew').length < 20) return;
+  S.flags.ch5 = true;
+  if (!S.recipes.includes('moonlight_stew')) S.recipes.push('moonlight_stew');
+  save(S);
+  UI.showMemory('🦌 5장 — 할머니의 약속', [
+    '온실의 유리가 달빛을 머금은 밤, 레시피북의 마지막 문양이 스르르 풀렸다.',
+    '그리고 숲에서 — 빛으로 된 사슴이 걸어나왔다. 대정령 <b>루미</b>.',
+    '『네 할머니는 매년 가장 밝은 보름밤, 나에게 스튜를 끓여주었지.<br>그것이 이 마을의 계절을 지키는 약속이었다.』',
+    '마지막 페이지의 레시피 — <b>달빛 스튜</b>.<br>재료: 별빛벼 · 반딧꽃 · 트러플 · 우유',
+    '별빛벼 씨앗은 봄이네 상점에, 반딧꽃 씨앗과 <b>별양</b>은 정령의 제단에 있다.',
+  ], '약속을 이어가자');
+}
+
 // ── 부트 ─────────────────────────────
 const CORE_ASSETS = [
   'assets/maps/farm.png', 'assets/maps/home.png',
@@ -583,6 +644,11 @@ const CORE_ASSETS = [
   'assets/buildings/board_old.png', 'assets/buildings/board_new.png',
   'assets/buildings/well_old.png', 'assets/buildings/well_new.png',
   'assets/buildings/fence_broken.png', 'assets/objects/firefly.png',
+  'assets/buildings/bakery_oven.png', 'assets/buildings/bakery_oven_broken.png',
+  'assets/buildings/lantern_tower_new.png', 'assets/buildings/lantern_tower_broken.png',
+  'assets/buildings/festival_stage_new.png', 'assets/buildings/festival_stage_broken.png',
+  'assets/buildings/greenhouse_new.png', 'assets/buildings/greenhouse_frame.png',
+  'assets/items/honey.png', 'assets/items/truffle.png', 'assets/items/star_wool.png', 'assets/items/flour.png',
 ];
 
 async function boot() {

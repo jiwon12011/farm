@@ -1,5 +1,5 @@
 // 서비스 워커: 셸 프리캐시 + 에셋 캐시 우선
-const VER = 'bandi-v3';
+const VER = 'bandi-v4';
 const SHELL = [
   '.', 'index.html', 'manifest.json',
   'css/style.css',

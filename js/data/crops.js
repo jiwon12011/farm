@@ -20,6 +20,9 @@ export const CROPS = {
   spinach:     { name: '시금치',   season: 3,  tier: 1, grow: 24e5,   seed: 14,  sell: 28 },
   garlic:      { name: '마늘',     season: 3,  tier: 2, grow: 72e5,   seed: 38,  sell: 82 },
   napa:        { name: '눈꽃배추', season: 3,  tier: 3, grow: 18e6,   seed: 130, sell: 320 },
+  // 전설 작물 (5장 해금) — 상점 미진열: 반딧꽃 씨앗은 제단 교환, 별빛벼는 온실+5장
+  fireflyflower: { name: '반딧꽃', season: -1, tier: 4, grow: 288e5, seed: 0,   sell: 0,    hidden: true },
+  star_rice:     { name: '별빛벼', season: -1, tier: 5, grow: 432e5, seed: 500, sell: 1500, hidden: true },
 };
 
 export function cropSprite(id) { return `assets/crops/${id}_mature.png`; }
@@ -37,8 +40,9 @@ export function seasonNow(now = Date.now()) {
   return { season, day: (dayIdx % 7) + 1 };
 }
 
-// 오늘 상점에 진열되는 씨앗 (무는 전 계절)
-export function shopSeeds(now = Date.now()) {
+// 오늘 상점에 진열되는 씨앗 (무는 전 계절, 온실 완공 시 전 계절 진열)
+export function shopSeeds(now = Date.now(), all = false) {
   const { season } = seasonNow(now);
-  return Object.keys(CROPS).filter(id => CROPS[id].season === -1 || CROPS[id].season === season);
+  return Object.keys(CROPS).filter(id =>
+    !CROPS[id].hidden && (all || CROPS[id].season === -1 || CROPS[id].season === season));
 }

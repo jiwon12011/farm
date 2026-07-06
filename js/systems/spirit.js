@@ -16,17 +16,23 @@ export function nightAlpha(d = new Date()) {
 }
 export const isNight = (d = new Date()) => nightAlpha(d) > 0.5;
 
-// ── 야생 반딧불 포획 (밤 한정, 하루 상한) ─────────────────────────────
-export const WILD_CAP = 10;
+// ── 야생 반딧불 포획 (밤 한정, 하루 상한 — 등불탑 완공 시 +5) ─────────────────────────────
+export const wildCap = state => state.village?.lantern?.status === 'done' ? 15 : 10;
 
 export function catchWild(state) {
   const today = new Date().toDateString();
   if (state.spirit.wildDay !== today) { state.spirit.wildDay = today; state.spirit.wildCaught = 0; }
-  if (state.spirit.wildCaught >= WILD_CAP) return false;
+  if (state.spirit.wildCaught >= wildCap(state)) return false;
   state.spirit.wildCaught++;
   state.fireflies++;
   return true;
 }
+
+// ── 제단 교환 — 전설 콘텐츠 (반딧꽃 씨앗은 4장부터, 별양은 5장부터) ──
+export const EXCHANGES = {
+  fireflyflower_seed: { name: '반딧꽃 씨앗', desc: '밤에 피는 정령의 꽃 — 8시간 성장, 비매품', cost: 30, icon: 'assets/items/fireflyflower.png' },
+  star_sheep:         { name: '별양',        desc: '별빛양털을 만드는 전설의 양 (5장)', cost: 500, icon: 'assets/animals/star_sheep_adult.png', needCh5: true },
+};
 
 // ── 축복 (정령 제단에서 반딧불로 구매) ─────────────────────────────
 export const BLESSINGS = {
