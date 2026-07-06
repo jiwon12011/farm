@@ -445,7 +445,7 @@ function render(now) {
   }
   const frame = player.moving ? (Math.floor(player.animT / 0.22) % 2) + 1 : 1;
   sprites.push({ y: player.y, draw: () =>
-    drawSprite(ctx, `assets/characters/hero_${player.dir}_${frame}.png`, player.x, player.y + 6, 54) });
+    drawSprite(ctx, `assets/characters/hero_${player.dir}_${frame}.png`, player.x, player.y + 6, 57) });
   sprites.sort((p, q) => p.y - q.y).forEach(s => s.draw());
 
   if (OVERLAY) {
