@@ -1,5 +1,5 @@
 // 반딧불 농장 — 부트스트랩 & 게임 루프
-import { MAPS, TRANSITIONS, FIREFLY_SPOTS } from './data/maps.js';
+import { MAPS, TRANSITIONS, FIREFLY_SPOTS, NIGHT_LIGHTS } from './data/maps.js';
 import { CROPS } from './data/crops.js';
 import { NPCS } from './data/npcs.js';
 import { REPAIRS, REPAIR_ORDER } from './data/village.js';
@@ -10,6 +10,7 @@ import { newState, load, save, wipe, initAutosave } from './engine/save.js';
 import { tickFarm, plant, water, harvest, plotCost, stageSprite, GROWTH_MULT } from './systems/farming.js';
 import { ANIMALS, tickRanch, wander, readyCount, collect, feed, pet, canPet } from './systems/ranch.js';
 import { settleOffline } from './systems/offline.js';
+import { nightAlpha, isNight, catchWild, WILD_CAP, growthBoost, ranchBoost } from './systems/spirit.js';
 import { itemOf } from './data/items.js';
 import { STARTER_RECIPES } from './data/recipes.js';
 import * as UI from './ui/ui.js';
@@ -29,6 +30,11 @@ let player = { x: S.px, y: S.py, dir: 'down', moving: false, animT: 0 };
 let cam = { x: 0, y: 0 };
 let zoom = 1, vw = 0, vh = 0;
 let fireflies = [];
+// 떠다니는 반딧불의 현재 위치 (렌더·상호작용 공용)
+const flyPos = (f, now) => ({
+  x: f.x + Math.sin(now / 1000 * f.s + f.p) * 30,
+  y: f.y + Math.cos(now / 1300 * f.s + f.p) * 22,
+});
 
 // ── 캔버스 & 줌 ─────────────────────────────
 function resize() {
@@ -70,7 +76,7 @@ function move(dt) {
 
 // ── 상호작용 ─────────────────────────────
 let action = null, actionKey = '';
-function findAction() {
+function findAction(now) {
   const m = MAPS[mapId];
   let best = null, bestD = 1e9;
   const consider = (d, obj) => { if (d < bestD) { bestD = d; best = obj; } };
@@ -98,6 +104,14 @@ function findAction() {
     if (npc.map !== mapId) continue;
     const d = Math.hypot(player.x - npc.x, player.y - npc.y);
     if (d < 60) consider(d, { kind: 'talk', npc: nid, label: '대화', icon: 'icon_heart' });
+  }
+  // 밤 야생 반딧불 잡기 (실외 맵)
+  if (isNight() && mapId !== 'home') {
+    fireflies.forEach((f, i) => {
+      const p = flyPos(f, now);
+      const d = Math.hypot(player.x - p.x, player.y - p.y);
+      if (d < 46) consider(d, { kind: 'wildfly', i, label: '잡기', icon: 'icon_firefly' });
+    });
   }
   // 숲 반딧불 채집
   if (mapId === 'forest') {
@@ -181,6 +195,16 @@ function doAction() {
       UI.toast('반딧불이 손끝에 앉았다… ✨ +1');
       UI.refreshHUD(); save(S);
       break;
+    case 'wildfly': {
+      if (catchWild(S)) {
+        UI.toast(`반딧불을 살포시 감쌌다 ✨ +1 (오늘 ${S.spirit.wildCaught}/${WILD_CAP})`);
+        const f = fireflies[a.i]; // 다른 곳에 재출현
+        f.x = 60 + Math.random() * 1130;
+        f.y = 60 + Math.random() * 1130;
+        UI.refreshHUD(); save(S);
+      } else UI.toast('오늘은 이만 놓아주자… 내일 밤 또 만나요 🌙');
+      break;
+    }
     case 'mailbox': UI.openShop(); break;
     case 'shipbox': UI.openSell(); break;
     case 'door': switchMap('door'); break;
@@ -211,7 +235,15 @@ function doAction() {
       else UI.openRestaurant();
       break;
     case 'shrine':
-      UI.toast('돌 제단이 차갑게 식어 있어요… 희미하게 덩굴 문양이 보여요 (4장)');
+      if (!S.flags.ch4) {
+        S.flags.ch4 = true; save(S);
+        UI.showMemory('🌌 4장 — 반딧불이 사라진 밤', [
+          '차갑게 식은 돌 제단에 손을 얹자, 돌 틈의 덩굴 문양이 희미하게 깨어났다.',
+          '『…할머니와 같은 냄새가 나.』<br>뒤돌아보니, 밤에만 보이던 소년 <b>반디</b>가 서 있었다.',
+          '『정령들은 죽은 게 아니야. 배가 고파서 잠든 것뿐.<br>맛있는 걸 바치면… 조금씩 깨어날 거야.』',
+          '달빛에 비친 반디의 발끝은, 땅에 닿아 있지 않았다.',
+        ], '제단에 요리를 바쳐보자');
+      } else UI.openShrine();
       break;
     case 'stove_pan': openStove('pan'); break;
     case 'stove_pot': openStove('pot'); break;
@@ -386,23 +418,43 @@ function render(now) {
   }
   ctx.restore();
 
-  // 밤 연출 + 반딧불
-  const h = new Date().getHours();
-  if (h >= 19 || h < 6) {
+  // 밤 연출: 황혼~밤 틴트 + 광원 글로우 + 반딧불 (실내 제외)
+  const na = nightAlpha();
+  if (na > 0 && mapId !== 'home') {
     ctx.globalCompositeOperation = 'multiply';
-    ctx.fillStyle = 'rgba(43,58,103,0.5)';
+    ctx.fillStyle = `rgba(43,58,103,${0.55 * na})`;
     ctx.fillRect(0, 0, vw, vh);
     ctx.globalCompositeOperation = 'lighter';
+
+    // 창문·가로등·제단의 따뜻한 빛
+    const glow = (x, y, r, c, a) => {
+      if (x < -r || x > vw + r || y < -r || y > vh + r) return;
+      const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+      g.addColorStop(0, `rgba(${c},${a})`);
+      g.addColorStop(1, `rgba(${c},0)`);
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill();
+    };
+    for (const L of NIGHT_LIGHTS[mapId] || []) {
+      const flick = 1 + 0.06 * Math.sin(now / 180 + L.x); // 촛불 흔들림
+      glow(L.x - cam.x, L.y - cam.y, L.r * flick, L.c, 0.34 * na);
+    }
+    // 플레이어 손등불 (은은한 시야)
+    glow(player.x - cam.x, player.y - cam.y - 8, 64, '255,214,140', 0.18 * na);
+
+    // 떠다니는 반딧불 — 밤이 깊으면 잡을 수 있다
     for (const f of fireflies) {
-      const fx = f.x + Math.sin(now / 1000 * f.s + f.p) * 30 - cam.x;
-      const fy = f.y + Math.cos(now / 1300 * f.s + f.p) * 22 - cam.y;
+      const p = flyPos(f, now);
+      const fx = p.x - cam.x, fy = p.y - cam.y;
       if (fx < -20 || fx > vw + 20 || fy < -20 || fy > vh + 20) continue;
+      const near = isNight() && Math.hypot(player.x - p.x, player.y - p.y) < 46;
       const tw = 0.55 + 0.45 * Math.sin(now / 400 + f.p * 3);
-      const g = ctx.createRadialGradient(fx, fy, 0, fx, fy, 8);
-      g.addColorStop(0, `rgba(255,217,122,${0.9 * tw})`);
+      const r = near ? 12 : 8;
+      const g = ctx.createRadialGradient(fx, fy, 0, fx, fy, r);
+      g.addColorStop(0, `rgba(255,217,122,${(near ? 1 : 0.9) * tw})`);
       g.addColorStop(1, 'rgba(255,217,122,0)');
       ctx.fillStyle = g;
-      ctx.beginPath(); ctx.arc(fx, fy, 8, 0, 7); ctx.fill();
+      ctx.beginPath(); ctx.arc(fx, fy, r, 0, 7); ctx.fill();
     }
     ctx.globalCompositeOperation = 'source-over';
   }
@@ -417,11 +469,11 @@ function loop(t) {
   const now = t;
   const dt = Math.min(0.1, (t - last) / 1000); last = t;
   if (!UI.modalOpen()) move(dt);
-  tickFarm(S, dt * 1000);
-  tickRanch(S, dt * 1000);
+  tickFarm(S, dt * 1000 * growthBoost(S));
+  tickRanch(S, dt * 1000 * ranchBoost(S));
   if (S.village.restaurant.status === 'done') tickRestaurant(S, dt * 1000);
   if (mapId === 'farm') for (const an of S.animals) wander(an, dt);
-  findAction();
+  findAction(now);
   render(now);
   hudT += dt;
   if (hudT > 1) {

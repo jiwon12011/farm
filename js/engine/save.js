@@ -22,6 +22,7 @@ export function newState() {
     orders: { list: [], refreshAt: 0 },
     restaurant: { slots: [null, null, null, null], pending: 0 },
     forest: { day: '', taken: [] },
+    spirit: { until: {}, wildDay: '', wildCaught: 0 },
     map: 'farm',
     px: 620, py: 400,
     flags: {},
@@ -40,7 +41,7 @@ export function load() {
   } catch { return null; }
 }
 
-// Phase 2·3 필드 채우기 (기존 세이브 호환)
+// Phase 2·3·4 필드 채우기 (기존 세이브 호환)
 function migrate(s) {
   s.animals ??= [];
   s.stoves ??= { pan: null, pot: null };
@@ -54,6 +55,7 @@ function migrate(s) {
   s.orders ??= { list: [], refreshAt: 0 };
   s.restaurant ??= { slots: [null, null, null, null], pending: 0 };
   s.forest ??= { day: '', taken: [] };
+  s.spirit ??= { until: {}, wildDay: '', wildCaught: 0 };
   return s;
 }
 

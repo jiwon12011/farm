@@ -9,6 +9,7 @@ import * as Cook from '../systems/cooking.js';
 import { ensureOrders, deliver } from '../systems/orders.js';
 import { SLOT_COUNT, stock, unstock, collectPending } from '../systems/restaurant.js';
 import { GROWTH_MULT } from '../systems/farming.js';
+import { BLESSINGS, blessLeft, buyBless, offer, offerValue, sellMult, activeBlessCount, WILD_CAP } from '../systems/spirit.js';
 import { save } from '../engine/save.js';
 
 const $ = sel => document.querySelector(sel);
@@ -24,7 +25,8 @@ export function refreshHUD() {
   const { season, day } = seasonNow();
   const h = new Date().getHours();
   const night = h >= 19 || h < 6;
-  $('#clock').textContent = `${SEASONS[season]} ${day}일차 ${night ? '🌙' : '☀️'}`;
+  const bless = activeBlessCount(S) > 0 ? ' ✨' : '';
+  $('#clock').textContent = `${SEASONS[season]} ${day}일차 ${night ? '🌙' : '☀️'}${bless}`;
 }
 
 // ── 토스트 ─────────────────────────────
@@ -116,25 +118,28 @@ export function openShop(tab = 'seeds') {
 
 // ── 출하 상자 (판매) ─────────────────────────────
 export function openSell() {
+  const mult = sellMult(S);
   const ids = Object.keys(S.inv).filter(id => S.inv[id] > 0);
   const rows = ids.length ? ids.map(id => {
     const it = itemOf(id);
     return `<div class="row">
       <img src="${it.icon}" class="icon">
-      <div class="grow"><b>${it.name}</b><small>${fmt(it.sell)}G × ${S.inv[id]}개</small></div>
+      <div class="grow"><b>${it.name}</b><small>${fmt(Math.round(it.sell * mult))}G × ${S.inv[id]}개</small></div>
       <button class="buy" data-id="${id}" data-n="1">1개</button>
       <button class="buy gold" data-id="${id}" data-n="all">전부</button>
     </div>`;
   }).join('') : `<p class="empty">팔 수 있는 것이 없어요.<br>작물을 키우고 요리를 만들어보세요!</p>`;
+  const blessNote = mult > 1 ? `<p class="sub">✨ 금빛 흥정의 축복 — 판매가 +20%!</p>` : '';
   const sheet = openModal(`
     <h2>📦 출하 상자</h2>
     <p class="sub">넣어두면 행상인이 바로 값을 쳐줘요 — 요리는 재료보다 훨씬 비싸요!</p>
+    ${blessNote}
     <div class="list">${rows}</div>
     <button class="close-btn">닫기</button>`);
   sheet.querySelectorAll('.buy').forEach(b => b.onclick = () => {
     const id = b.dataset.id;
     const n = b.dataset.n === 'all' ? S.inv[id] : 1;
-    const earn = itemOf(id).sell * n;
+    const earn = Math.round(itemOf(id).sell * mult) * n;
     S.inv[id] -= n;
     S.gold += earn;
     S.stats.earned += earn;
@@ -413,6 +418,60 @@ export function openRestaurant() {
       save(S); openRestaurant();
     });
     sub.querySelector('.close-btn').onclick = () => openRestaurant();
+  });
+  sheet.querySelector('.close-btn').onclick = closeModal;
+}
+
+// ── 정령 제단: 공양(요리 → 반딧불) + 축복 구매 ─────────────────────────────
+export function openShrine(tab = 'bless') {
+  let rows = '';
+  if (tab === 'bless') {
+    rows = Object.entries(BLESSINGS).map(([id, b]) => {
+      const left = blessLeft(S, id);
+      const state = left > 0
+        ? `<span class="count">✨ ${Cook.fmtLeft(left)}</span>`
+        : `<button class="buy ${S.fireflies >= b.cost ? 'gold' : 'off'}" data-bless="${id}">${b.cost}✨</button>`;
+      return `<div class="row">
+        <img src="${b.icon}" class="icon">
+        <div class="grow"><b>${b.name}</b><small>${b.desc}</small></div>
+        ${state}</div>`;
+    }).join('');
+  } else {
+    const dishes = Object.keys(S.inv).filter(id => S.inv[id] > 0 && (RECIPES[id] || id === 'mystery_porridge'));
+    rows = dishes.length ? dishes.map(id => {
+      const it = itemOf(id);
+      return `<div class="row">
+        <img src="${it.icon}" class="icon">
+        <div class="grow"><b>${it.name}</b><small>보유 ${S.inv[id]}개${id === 'mystery_porridge' ? ' · 정령들이 이상하게 좋아해요' : ''}</small></div>
+        <button class="buy gold" data-offer="${id}">+${offerValue(id)}✨</button>
+      </div>`;
+    }).join('') : `<p class="empty">바칠 요리가 없어요.<br>수상한 죽도 정령에겐 진수성찬이래요!</p>`;
+  }
+  const sheet = openModal(`
+    <h2>🌿 정령의 제단</h2>
+    <p class="sub">보유 반딧불 ✨${fmt(S.fireflies)} · 밤에는 들판의 반딧불을 잡을 수 있어요 (하루 ${WILD_CAP}마리)</p>
+    <div class="tabs">
+      <button class="tab ${tab === 'bless' ? 'on' : ''}" data-tab="bless">🌙 축복</button>
+      <button class="tab ${tab === 'offer' ? 'on' : ''}" data-tab="offer">🍲 공양</button>
+    </div>
+    <div class="list">${rows}</div>
+    <button class="close-btn">닫기</button>`);
+  sheet.querySelectorAll('.tab').forEach(b => b.onclick = () => openShrine(b.dataset.tab));
+  sheet.querySelectorAll('[data-bless]').forEach(b => b.onclick = () => {
+    const id = b.dataset.bless;
+    if (buyBless(S, id)) {
+      save(S); refreshHUD();
+      toast(id === 'instant' ? '달빛이 쏟아진다… 밭의 작물이 일제히 여물었다! 🌕' : `${BLESSINGS[id].name}의 축복을 받았어요 ✨`, 3000);
+      openShrine('bless');
+    } else toast(id === 'instant' && S.fireflies >= BLESSINGS.instant.cost ? '자라는 중인 작물이 없어요' : '반딧불이 부족해요');
+  });
+  sheet.querySelectorAll('[data-offer]').forEach(b => b.onclick = () => {
+    const n = offer(S, b.dataset.offer);
+    if (n > 0) {
+      save(S); refreshHUD();
+      toast(`제단이 은은하게 빛난다… ✨ +${n}`);
+      openShrine('offer');
+    }
   });
   sheet.querySelector('.close-btn').onclick = closeModal;
 }

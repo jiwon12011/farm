@@ -2,6 +2,7 @@
 import { tickFarm } from './farming.js';
 import { tickRanch, readyCount } from './ranch.js';
 import { tickRestaurant, OFFLINE_CAP } from './restaurant.js';
+import { boostedElapsed } from './spirit.js';
 
 export function settleOffline(state, now = Date.now()) {
   const elapsed = Math.max(0, now - state.lastSave);
@@ -9,8 +10,9 @@ export function settleOffline(state, now = Date.now()) {
   const prodBefore = state.animals.reduce((s, a) => s + readyCount(a), 0);
   const pendingBefore = state.restaurant.pending;
 
-  tickFarm(state, elapsed);
-  tickRanch(state, elapsed);
+  // 정령 축복이 켜져 있던 구간은 2배 성장 — 겹친 시간만큼 가산
+  tickFarm(state, boostedElapsed(state, 'growth', elapsed, now));
+  tickRanch(state, boostedElapsed(state, 'ranch', elapsed, now));
   if (state.village.restaurant.status === 'done') {
     tickRestaurant(state, Math.min(elapsed, OFFLINE_CAP));
   }
