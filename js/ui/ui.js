@@ -213,11 +213,12 @@ export function openCooking(tool) {
     toast(`${it.name} 완성! 🍽️`);
     if (id !== 'mystery_porridge' && !S.flags.ch1) {
       S.flags.ch1 = true; save(S);
-      showMemory('📖 레시피북 — 첫 페이지', [
+      showMemory('📖 1장 — 첫 페이지가 풀리다', [
         '요리 냄새에 이끌리듯, 레시피북의 덩굴 문양 하나가 스르르 풀렸다.',
-        '『맛있는 냄새는 배고픈 이만 부르는 게 아니란다. 밤의 작은 친구들도 코가 밝거든.』',
+        '풀린 페이지엔 할머니의 글씨.<br>『맛있는 냄새는 배고픈 이만 부르는 게 아니란다.<br>밤의 작은 친구들도 코가 밝거든.』',
         '…창밖에서 반딧불 하나가 반짝, 하고 사라졌다.',
-      ]);
+        '다음 날 아침, 우편함에 쪽지가 꽂혀 있었다.<br>『맛있는 냄새가 마을까지 나더구나. 한번 들르게. — 이장 밤톨』<br><b>(농장 위쪽, 마을로 가는 길이 열렸어요!)</b>',
+      ], '마을에 가보자');
     }
     return;
   }
@@ -297,7 +298,9 @@ export function openDialog(npcId) {
   const aff = S.affinity[npcId] || 0;
   const today = new Date().toDateString();
   const talked = S.talkDay[npcId] === today;
-  const line = npc.lines[(aff + (talked ? 0 : 1)) % npc.lines.length];
+  // ♥7 이상이면 속깊은 이야기가 대화 풀에 섞임
+  const pool = aff >= 7 && npc.deep ? [...npc.lines, ...npc.deep] : npc.lines;
+  const line = pool[(aff + (talked ? 0 : 1)) % pool.length];
   const hearts = '♥'.repeat(Math.min(10, aff)) + '♡'.repeat(Math.max(0, 10 - aff));
 
   if (!talked) {
@@ -560,14 +563,19 @@ export function showMemory(title, paras, btn = '소중히 간직하기') {
 export function showPrologue(done) {
   const sheet = openModal(`
     <div class="letter">
-      <h2>💌 할머니의 편지</h2>
+      <h2>💌 다섯 번째 봄에 닿은 편지</h2>
       <p>사랑하는 아이에게.</p>
+      <p>이 편지가 닿았다면, 내가 없는 봄이
+      다섯 번 돌았다는 뜻이겠구나.
+      우체국 김 씨에게 부탁해 두었단다 —
+      네가 나를 충분히 그리워한 다음에 부쳐 달라고.</p>
       <p>반딧불 마을의 농장을 너에게 맡긴다.
       도시의 밤이 너무 밝아 별이 안 보이거든,
       이곳의 반딧불을 보러 오렴.</p>
-      <p>부엌 서랍에 나의 레시피북을 두었단다.
-      …그 책이 너를 기다리고 있을 거야.</p>
-      <p class="sign">— 할머니가</p>
+      <p>부엌 서랍에 나의 레시피북을 두었다.
+      잠겨 있다고 실망하지 말 것.
+      요리란 원래, 마음이 열려야 열리는 법이란다.</p>
+      <p class="sign">— 할머니 은하가</p>
     </div>
     <button class="close-btn primary">농장 시작하기 🌾</button>`, 'center');
   sheet.querySelector('.close-btn').onclick = () => { closeModal(); done(); };
