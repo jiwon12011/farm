@@ -1,10 +1,12 @@
 // 이미지 로더 + 스프라이트 드로잉 헬퍼
+// ASSET_VER: 에셋 파일을 교체했을 때 올려주면 브라우저 캐시를 무효화함
+export const ASSET_VER = 2;
 const cache = new Map();
 
 export function img(src) {
   if (!cache.has(src)) {
     const im = new Image();
-    im.src = src;
+    im.src = `${src}?v=${ASSET_VER}`;
     cache.set(src, im);
   }
   return cache.get(src);
