@@ -7,7 +7,7 @@ const r = (x, y, w, h) => [x * T, y * T, w * T, h * T];
 const plots = [];
 for (let row = 0; row < 4; row++) {
   for (let col = 0; col < 5; col++) {
-    plots.push({ x: 187 + col * 64 + 28, y: 368 + row * 58 + 40 }); // 앵커: 밭칸 중심 하단
+    plots.push({ x: 207 + col * 63.5, y: 405 + row * 59.5 }); // 앵커: 밭칸 중심 하단 (픽셀 실측값)
   }
 }
 
