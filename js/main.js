@@ -339,7 +339,7 @@ function render(now) {
       const plot = S.plots[i];
       if (i >= S.unlocked) {
         ctx.fillStyle = 'rgba(30,24,18,0.45)';
-        rr(ctx, pos.x - 27, pos.y - 46, 54, 50, 8); ctx.fill();
+        rr(ctx, pos.x - 24, pos.y - 39, 48, 43, 8); ctx.fill();
         if (i === S.unlocked) {
           drawSprite(ctx, 'assets/ui/icon_coin.png', pos.x - 17, pos.y - 12, 13);
           ctx.fillStyle = '#FFD97A';
@@ -355,12 +355,12 @@ function render(now) {
         return;
       }
       if (!plot.crop) return;
-      if (plot.progress < plot.wateredUntil) { // 물기
-        ctx.fillStyle = 'rgba(60,120,220,0.22)';
-        ctx.beginPath(); ctx.ellipse(pos.x, pos.y - 12, 26, 14, 0, 0, 7); ctx.fill();
+      if (plot.progress < plot.wateredUntil) { // 물기 — 밭칸 전체가 촉촉하게
+        ctx.fillStyle = 'rgba(40,70,160,0.20)';
+        rr(ctx, pos.x - 22, pos.y - 38, 44, 41, 9); ctx.fill();
       }
       const size = plot.progress >= 1 ? 42 : plot.progress >= 0.45 ? 34 : 24;
-      drawSprite(ctx, stageSprite(plot), pos.x, pos.y + 4, size);
+      drawSprite(ctx, stageSprite(plot), pos.x, pos.y - 4, size);
       if (plot.progress >= 1) { // 수확 표시
         const bob = Math.sin(now / 280 + i) * 3;
         drawSprite(ctx, 'assets/ui/icon_star.png', pos.x, pos.y - 46 + bob, 15);
