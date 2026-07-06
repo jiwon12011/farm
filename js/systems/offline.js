@@ -3,6 +3,7 @@ import { tickFarm } from './farming.js';
 import { tickRanch, readyCount } from './ranch.js';
 import { tickRestaurant, OFFLINE_CAP } from './restaurant.js';
 import { boostedElapsed } from './spirit.js';
+import { rainWater } from './season.js';
 
 export function settleOffline(state, now = Date.now()) {
   const elapsed = Math.max(0, now - state.lastSave);
@@ -27,6 +28,8 @@ export function settleOffline(state, now = Date.now()) {
       }
     }
   }
+
+  watered += rainWater(state, now); // 비 오는 날엔 우물이 없어도 촉촉
 
   const crops = state.plots.filter(p => p.crop && p.progress >= 1).length - matureBefore;
   const products = state.animals.reduce((s, a) => s + readyCount(a), 0) - prodBefore;

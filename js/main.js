@@ -1,6 +1,6 @@
 // 반딧불 농장 — 부트스트랩 & 게임 루프
 import { MAPS, TRANSITIONS, FIREFLY_SPOTS, NIGHT_LIGHTS } from './data/maps.js';
-import { CROPS } from './data/crops.js';
+import { CROPS, seasonNow } from './data/crops.js';
 import { NPCS } from './data/npcs.js';
 import { REPAIRS, REPAIR_ORDER } from './data/village.js';
 import { tickRestaurant } from './systems/restaurant.js';
@@ -11,6 +11,7 @@ import { tickFarm, plant, water, harvest, plotCost, stageSprite, GROWTH_MULT } f
 import { ANIMALS, tickRanch, wander, readyCount, collect, feed, pet, canPet } from './systems/ranch.js';
 import { settleOffline } from './systems/offline.js';
 import { nightAlpha, isNight, catchWild, WILD_CAP, growthBoost, ranchBoost } from './systems/spirit.js';
+import { weatherToday, rainWater, SEASON_TINTS } from './systems/season.js';
 import { itemOf } from './data/items.js';
 import { STARTER_RECIPES } from './data/recipes.js';
 import * as UI from './ui/ui.js';
@@ -418,6 +419,17 @@ function render(now) {
   }
   ctx.restore();
 
+  // 계절 색감 + 날씨 (실외 맵)
+  if (mapId !== 'home') {
+    for (const [mode, style] of SEASON_TINTS[seasonNow().season]) {
+      ctx.globalCompositeOperation = mode;
+      ctx.fillStyle = style;
+      ctx.fillRect(0, 0, vw, vh);
+    }
+    ctx.globalCompositeOperation = 'source-over';
+    drawWeather(now);
+  }
+
   // 밤 연출: 황혼~밤 틴트 + 광원 글로우 + 반딧불 (실내 제외)
   const na = nightAlpha();
   if (na > 0 && mapId !== 'home') {
@@ -463,6 +475,48 @@ function rr(c, x, y, w, h, r) {
   c.beginPath(); c.roundRect(x, y, w, h, r);
 }
 
+// ── 날씨·계절 파티클 (화면 좌표) ─────────────────────────────
+// 비: 빗줄기+어둑한 톤 / 눈: 함박눈 / 맑은 봄: 꽃잎 / 맑은 가을: 낙엽
+let particles = [], particleKey = '';
+function drawWeather(now) {
+  const w = weatherToday();
+  const { season } = seasonNow();
+  const key = w !== 'sun' ? w : season === 0 ? 'petal' : season === 2 ? 'leaf' : '';
+  if (key !== particleKey) {
+    particleKey = key;
+    const n = { rain: 70, snow: 50, petal: 10, leaf: 12 }[key] || 0;
+    particles = Array.from({ length: n }, () => ({
+      x: Math.random(), y: Math.random(), s: 0.6 + Math.random() * 0.8, p: Math.random() * 6.28,
+    }));
+  }
+  if (!key) return;
+  if (key === 'rain') {
+    ctx.globalCompositeOperation = 'multiply';
+    ctx.fillStyle = 'rgba(140,155,185,0.35)';
+    ctx.fillRect(0, 0, vw, vh);
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.strokeStyle = 'rgba(190,210,255,0.4)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (const p of particles) {
+      const x = (p.x * vw + now * 0.06 * p.s) % (vw + 20) - 10;
+      const y = (p.y * vh + now * 0.45 * p.s) % (vh + 20) - 10;
+      ctx.moveTo(x, y); ctx.lineTo(x - 2.5, y + 9);
+    }
+    ctx.stroke();
+    return;
+  }
+  for (const p of particles) {
+    const x = (p.x * vw + Math.sin(now / 900 * p.s + p.p) * 24 + vw) % vw;
+    const y = (p.y * vh + now * (key === 'snow' ? 0.03 : 0.02) * p.s) % (vh + 20) - 10;
+    ctx.fillStyle = key === 'snow' ? 'rgba(255,255,255,0.8)'
+      : key === 'petal' ? 'rgba(255,183,205,0.85)' : 'rgba(224,142,60,0.85)';
+    ctx.beginPath();
+    ctx.arc(x, y, key === 'snow' ? 1.6 : 2.2, 0, 7);
+    ctx.fill();
+  }
+}
+
 // ── 루프 ─────────────────────────────
 let last = 0, hudT = 0;
 function loop(t) {
@@ -479,6 +533,7 @@ function loop(t) {
   if (hudT > 1) {
     hudT = 0; UI.refreshHUD();
     S.px = player.x; S.py = player.y;
+    rainWater(S); // 비 오는 날엔 밭이 계속 촉촉
     checkRepairs();
   }
   requestAnimationFrame(loop);

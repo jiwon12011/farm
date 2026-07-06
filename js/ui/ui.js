@@ -10,6 +10,7 @@ import { ensureOrders, deliver } from '../systems/orders.js';
 import { SLOT_COUNT, stock, unstock, collectPending } from '../systems/restaurant.js';
 import { GROWTH_MULT } from '../systems/farming.js';
 import { BLESSINGS, blessLeft, buyBless, offer, offerValue, sellMult, activeBlessCount, WILD_CAP } from '../systems/spirit.js';
+import { weatherToday } from '../systems/season.js';
 import { save } from '../engine/save.js';
 
 const $ = sel => document.querySelector(sel);
@@ -25,8 +26,10 @@ export function refreshHUD() {
   const { season, day } = seasonNow();
   const h = new Date().getHours();
   const night = h >= 19 || h < 6;
+  const w = weatherToday();
+  const sky = night ? '🌙' : w === 'rain' ? '🌧️' : w === 'snow' ? '❄️' : '☀️';
   const bless = activeBlessCount(S) > 0 ? ' ✨' : '';
-  $('#clock').textContent = `${SEASONS[season]} ${day}일차 ${night ? '🌙' : '☀️'}${bless}`;
+  $('#clock').textContent = `${SEASONS[season]} ${day}일차 ${sky}${bless}`;
 }
 
 // ── 토스트 ─────────────────────────────

@@ -25,10 +25,16 @@ export const CROPS = {
 export function cropSprite(id) { return `assets/crops/${id}_mature.png`; }
 export function itemIcon(id)   { return `assets/items/${id}.png`; }
 
+// 디버그: ?season=0~3 강제 (0봄 1여름 2가을 3겨울) — node 테스트 환경엔 location이 없다
+const FORCE_SEASON = typeof location === 'undefined' ? null : new URLSearchParams(location.search).get('season');
+
 // 현재 실제 날짜 → 게임 계절 (실제 7일 = 한 계절, 28일 주기)
 export function seasonNow(now = Date.now()) {
   const dayIdx = Math.floor(now / 864e5);
-  return { season: Math.floor((dayIdx % 28) / 7), day: (dayIdx % 7) + 1 };
+  const season = FORCE_SEASON === null
+    ? Math.floor((dayIdx % 28) / 7)
+    : Math.max(0, Math.min(3, +FORCE_SEASON || 0));
+  return { season, day: (dayIdx % 7) + 1 };
 }
 
 // 오늘 상점에 진열되는 씨앗 (무는 전 계절)

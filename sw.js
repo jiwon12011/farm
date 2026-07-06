@@ -1,11 +1,11 @@
 // 서비스 워커: 셸 프리캐시 + 에셋 캐시 우선
-const VER = 'bandi-v2';
+const VER = 'bandi-v3';
 const SHELL = [
   '.', 'index.html', 'manifest.json',
   'css/style.css',
   'js/main.js', 'js/data/crops.js', 'js/data/maps.js',
   'js/engine/assets.js', 'js/engine/input.js', 'js/engine/save.js',
-  'js/systems/farming.js', 'js/systems/spirit.js', 'js/ui/ui.js',
+  'js/systems/farming.js', 'js/systems/spirit.js', 'js/systems/season.js', 'js/ui/ui.js',
   'assets/fonts/neodgm.woff2',
 ];
 
